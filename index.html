@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Absensi Toko</title>
+<meta name="theme-color" content="#16201C" />
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icons/icon-192.png" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <header class="topbar">
+    <span class="brand">ABSENSI <span class="brand-accent">TOKO</span></span>
+    <span id="lock-indicator" class="lock-indicator" hidden>🔒 Admin</span>
+  </header>
+
+  <main id="app">
+
+    <!-- ===== TAB: ABSEN ===== -->
+    <section id="tab-absen" class="tab active">
+      <div class="clock-card">
+        <div id="clock-time" class="clock-time">--:--:--</div>
+        <div id="clock-date" class="clock-date">-</div>
+      </div>
+
+      <div class="card">
+        <label class="field-label" for="pilih-karyawan">Karyawan</label>
+        <select id="pilih-karyawan" class="select-big">
+          <option value="">— Pilih nama —</option>
+        </select>
+
+        <div id="shift-info" class="shift-info" hidden></div>
+        <div id="status-info" class="status-info" hidden></div>
+
+        <button id="btn-absen" class="btn-action" disabled>Pilih nama dulu</button>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Log hari ini</div>
+        <div id="log-hari-ini" class="log-list">
+          <div class="log-empty">Belum ada yang absen hari ini.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== TAB: JADWAL ===== -->
+    <section id="tab-jadwal" class="tab">
+      <div class="card">
+        <div class="row-between">
+          <label class="field-label" for="jadwal-tanggal">Tanggal</label>
+          <button id="btn-copy-kemarin" class="btn-ghost">Salin jadwal kemarin</button>
+        </div>
+        <input type="date" id="jadwal-tanggal" class="input-date" />
+      </div>
+
+      <div class="card">
+        <div class="card-title">Atur shift per karyawan</div>
+        <div id="jadwal-list" class="jadwal-list">
+          <div class="log-empty">Belum ada karyawan. Tambahkan dulu di tab Karyawan.</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Koreksi absensi (tanggal di atas)</div>
+        <p class="hint">Untuk isi/perbaiki jam masuk atau pulang yang ketinggalan tap. Kosongkan jam untuk menghapus.</p>
+        <div id="koreksi-list" class="koreksi-list">
+          <div class="log-empty">Tidak ada karyawan berjadwal di tanggal ini.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== TAB: KARYAWAN ===== -->
+    <section id="tab-karyawan" class="tab">
+      <div class="card">
+        <div class="card-title">Tambah karyawan</div>
+        <div class="row-inline">
+          <input type="text" id="input-nama-karyawan" class="input-text" placeholder="Nama karyawan" />
+          <button id="btn-tambah-karyawan" class="btn-primary">Tambah</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Daftar karyawan</div>
+        <div id="daftar-karyawan" class="employee-list">
+          <div class="log-empty">Belum ada karyawan.</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">PIN admin</div>
+        <p class="hint">PIN dibutuhkan untuk masuk ke Jadwal, Karyawan, dan Rekap.</p>
+        <div class="row-inline">
+          <input type="password" id="pin-lama" class="input-text" placeholder="PIN lama" inputmode="numeric" />
+          <input type="password" id="pin-baru" class="input-text" placeholder="PIN baru" inputmode="numeric" />
+          <button id="btn-ganti-pin" class="btn-ghost">Ganti</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== TAB: REKAP ===== -->
+    <section id="tab-rekap" class="tab">
+      <div class="card">
+        <label class="field-label" for="rekap-bulan">Pilih bulan</label>
+        <input type="month" id="rekap-bulan" class="input-date" />
+        <div class="row-inline" style="margin-top:12px">
+          <button id="btn-tampilkan-rekap" class="btn-primary">Tampilkan</button>
+          <button id="btn-export-excel" class="btn-accent">Export Excel</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Ringkasan bulanan</div>
+        <div id="rekap-ringkasan" class="rekap-table-wrap">
+          <div class="log-empty">Pilih bulan, lalu tekan "Tampilkan".</div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- PIN modal -->
+  <div id="pin-modal" class="modal-overlay" hidden>
+    <div class="modal-box">
+      <div class="card-title">Masukkan PIN Admin</div>
+      <input type="password" id="pin-input" class="input-text input-pin" inputmode="numeric" autocomplete="off" />
+      <div id="pin-error" class="pin-error" hidden>PIN salah, coba lagi.</div>
+      <div class="row-inline">
+        <button id="pin-cancel" class="btn-ghost">Batal</button>
+        <button id="pin-submit" class="btn-primary">Masuk</button>
+      </div>
+    </div>
+  </div>
+
+  <nav class="bottom-nav">
+    <button class="nav-btn active" data-tab="absen">
+      <svg viewBox="0 0 24 24" class="nav-icon"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>
+      <span>Absen</span>
+    </button>
+    <button class="nav-btn" data-tab="jadwal">
+      <svg viewBox="0 0 24 24" class="nav-icon"><rect x="3.5" y="4.5" width="17" height="16" rx="1.5"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/></svg>
+      <span>Jadwal</span>
+    </button>
+    <button class="nav-btn" data-tab="karyawan">
+      <svg viewBox="0 0 24 24" class="nav-icon"><circle cx="12" cy="8" r="3.3"/><path d="M5 20c0-3.6 3-6 7-6s7 2.4 7 6"/></svg>
+      <span>Karyawan</span>
+    </button>
+    <button class="nav-btn" data-tab="rekap">
+      <svg viewBox="0 0 24 24" class="nav-icon"><rect x="4" y="3.5" width="16" height="17" rx="1.5"/><path d="M8 9h8M8 13h8M8 17h4"/></svg>
+      <span>Rekap</span>
+    </button>
+  </nav>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
+  <script src="app.js" defer></script>
+</body>
+</html>
