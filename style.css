@@ -18,8 +18,6 @@
 
 *{ box-sizing: border-box; }
 html,body{ margin:0; padding:0; }
-
-/* Pastikan atribut [hidden] tidak di-override oleh CSS display lain */
 [hidden]{ display: none !important; }
 
 body{
@@ -325,4 +323,57 @@ table.rekap th{
 
 @media (min-width: 480px){
   .clock-time{ font-size: 52px; }
+}
+
+/* ===== TOMBOL MASUK INFO ===== */
+.btn-info-masuk{
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  background: var(--surface-2);
+  border: 2px solid var(--masuk);
+  cursor: default;
+  padding: 14px 16px;
+}
+.btn-info-jam{
+  font-family: var(--mono);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--masuk);
+}
+.btn-info-status{
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+.tepat-label{ color: var(--masuk); }
+.telat-label{ color: var(--telat); }
+
+/* ===== CARD TOMBOL PULANG ===== */
+.pulang-card{
+  border-color: var(--pulang);
+}
+.pulang-label{
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--pulang);
+  margin-bottom: 10px;
+}
+.pulang-progress-wrap{
+  width: 100%;
+  height: 4px;
+  background: var(--surface-2);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.pulang-progress-bar{
+  height: 100%;
+  width: 0%;
+  background: var(--pulang);
+  border-radius: 999px;
+  transition: width 0.1s linear;
 }

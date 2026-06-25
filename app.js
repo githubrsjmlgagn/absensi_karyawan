@@ -177,21 +177,27 @@ function renderAbsenStatus() {
     statusInfo.hidden = true;
     btn.disabled = false;
     btn.className = "btn-action mode-masuk";
-    btn.textContent = "Absen Masuk";
+    btn.innerHTML = "Absen Masuk";
     btn.dataset.action = "masuk";
+    const existingPulang = document.getElementById("btn-pulang-wrap");
+    if (existingPulang) existingPulang.remove();
     return;
   }
 
   if (entry.masuk && !entry.pulang) {
     const calc = hitungEntri(shiftId, entry.masuk, null);
-    statusInfo.hidden = false;
-    statusInfo.innerHTML =
-      `Masuk: ${entry.masuk}` +
-      (calc.telat > 0 ? ` <span class="telat">(telat ${minutesToJamMenit(calc.telat)})</span>` : " (tepat waktu)");
-    btn.disabled = false;
-    btn.className = "btn-action mode-pulang";
-    btn.textContent = "Absen Pulang";
-    btn.dataset.action = "pulang";
+    // Status masuk ditampilkan DI DALAM tombol info
+    statusInfo.hidden = true;
+    btn.disabled = true;
+    btn.className = "btn-action btn-info-masuk";
+    btn.innerHTML =
+      `<span class="btn-info-jam">✓ Masuk ${entry.masuk}</span>` +
+      (calc.telat > 0
+        ? `<span class="btn-info-status telat-label">Telat ${minutesToJamMenit(calc.telat)}</span>`
+        : `<span class="btn-info-status tepat-label">Tepat Waktu</span>`);
+
+    // Render tombol pulang terpisah dengan countdown
+    renderTombolPulang(id);
     return;
   }
 
@@ -205,7 +211,64 @@ function renderAbsenStatus() {
     (calc.lembur > 0 ? ` · <span class="lembur">Lembur ${minutesToJamMenit(calc.lembur)}</span>` : "");
   btn.disabled = true;
   btn.className = "btn-action";
-  btn.textContent = "Selesai untuk hari ini ✓";
+  btn.innerHTML = "Selesai untuk hari ini ✓";
+  const existingPulang = document.getElementById("btn-pulang-wrap");
+  if (existingPulang) existingPulang.remove();
+}
+
+const PULANG_COUNTDOWN = 5;
+
+function renderTombolPulang(karyawanId) {
+  const old = document.getElementById("btn-pulang-wrap");
+  if (old) old.remove();
+
+  const card = document.getElementById("btn-absen").closest(".card");
+  const wrap = document.createElement("div");
+  wrap.id = "btn-pulang-wrap";
+  wrap.className = "card pulang-card";
+  wrap.innerHTML = `
+    <div class="pulang-label">Absen Pulang</div>
+    <div class="pulang-progress-wrap">
+      <div class="pulang-progress-bar" id="pulang-progress-bar"></div>
+    </div>
+    <button id="btn-pulang-action" class="btn-action mode-pulang" disabled>
+      Menunggu <span id="pulang-countdown">${PULANG_COUNTDOWN}</span>s…
+    </button>`;
+  card.after(wrap);
+
+  const btnPulang = document.getElementById("btn-pulang-action");
+  const countdownEl = document.getElementById("pulang-countdown");
+  const progressBar = document.getElementById("pulang-progress-bar");
+
+  const totalMs = PULANG_COUNTDOWN * 1000;
+  const startTime = Date.now();
+
+  const interval = setInterval(() => {
+    const elapsed = Date.now() - startTime;
+    const pct = Math.min(100, (elapsed / totalMs) * 100);
+    progressBar.style.width = pct + "%";
+    const sisa = Math.ceil((totalMs - elapsed) / 1000);
+    if (sisa <= 0) {
+      clearInterval(interval);
+      btnPulang.disabled = false;
+      btnPulang.textContent = "Absen Pulang";
+      progressBar.style.width = "100%";
+    } else {
+      countdownEl.textContent = sisa;
+    }
+  }, 100);
+
+  btnPulang.addEventListener("click", () => {
+    clearInterval(interval);
+    const today = todayStr();
+    const absensi = getAbsensi();
+    if (!absensi[today]) absensi[today] = {};
+    if (!absensi[today][karyawanId]) absensi[today][karyawanId] = {};
+    absensi[today][karyawanId].pulang = nowHHMM();
+    saveAbsensi(absensi);
+    renderAbsenStatus();
+    renderLogHariIni();
+  });
 }
 
 function handleAbsenClick() {
