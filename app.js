@@ -115,6 +115,33 @@ function hitungEntri(shiftId, masuk, pulang) {
 let currentTab = "absen";
 let pinUnlockedThisSession = false;
 let pinPendingTab = null;
+let pinUnlockExpiry = null;
+const PIN_TIMEOUT_MS = 30 * 60 * 1000; // 30 menit
+
+function isPinUnlocked() {
+  if (!pinUnlockedThisSession) return false;
+  if (pinUnlockExpiry && Date.now() > pinUnlockExpiry) {
+    lockAdmin();
+    return false;
+  }
+  return true;
+}
+
+function refreshPinExpiry() {
+  if (pinUnlockedThisSession) {
+    pinUnlockExpiry = Date.now() + PIN_TIMEOUT_MS;
+  }
+}
+
+function lockAdmin() {
+  pinUnlockedThisSession = false;
+  pinUnlockExpiry = null;
+  document.getElementById("lock-indicator").hidden = true;
+  // Kalau sedang di tab protected, kembali ke tab absen
+  if (["jadwal", "karyawan", "rekap"].includes(currentTab)) {
+    activateTab("absen");
+  }
+}
 
 /* ===================== JAM BERJALAN ===================== */
 
@@ -547,6 +574,7 @@ function renderKoreksiAbsensi() {
         <span class="nm">${escapeHtml(k.nama)}<small>${shift ? shift.nama + " · " + shift.mulai + "-" + shift.selesai : "tanpa shift"}</small></span>
         <input type="time" class="koreksi-masuk" data-karyawan-id="${k.id}" value="${entry.masuk || ""}" aria-label="Jam masuk" />
         <input type="time" class="koreksi-pulang" data-karyawan-id="${k.id}" value="${entry.pulang || ""}" aria-label="Jam pulang" />
+        <input type="text" class="koreksi-keterangan" data-karyawan-id="${k.id}" value="${escapeHtml(entry.keterangan || "")}" placeholder="Keterangan (opsional)" aria-label="Keterangan" />
       </div>`;
     })
     .join("");
@@ -561,10 +589,12 @@ function renderKoreksiAbsensi() {
     saveAbsensi(absensiAll);
     inputEl.classList.add("saved-flash");
     setTimeout(() => inputEl.classList.remove("saved-flash"), 600);
+    refreshPinExpiry();
   }
 
   wrap.querySelectorAll(".koreksi-masuk").forEach((el) => el.addEventListener("change", () => simpanKoreksi(el, "masuk")));
   wrap.querySelectorAll(".koreksi-pulang").forEach((el) => el.addEventListener("change", () => simpanKoreksi(el, "pulang")));
+  wrap.querySelectorAll(".koreksi-keterangan").forEach((el) => el.addEventListener("change", () => simpanKoreksi(el, "keterangan")));
 }
 
 function handleCopyKemarin() {
@@ -679,6 +709,7 @@ function hitungRekapBulanan(bulanStr) {
         normal: calc.normal != null ? calc.normal : 0,
         lembur: calc.lembur != null ? calc.lembur : 0,
         telat: calc.telat,
+        keterangan: e.keterangan || "",
       });
 
       if (!ringkasanMap[id]) ringkasanMap[id] = { nama: k.nama, hadir: 0, normal: 0, lembur: 0, telat: 0 };
@@ -783,6 +814,7 @@ function confirmExportExcel() {
         "Jam Normal": minutesToJamMenit(d.normal),
         "Jam Lembur": minutesToJamMenit(d.lembur),
         Telat: minutesToJamMenit(d.telat),
+        Keterangan: d.keterangan || "",
       }))
   );
 
@@ -816,13 +848,27 @@ function submitPin() {
   const input = document.getElementById("pin-input").value;
   if (input === getPin()) {
     pinUnlockedThisSession = true;
-    document.getElementById("lock-indicator").hidden = false;
+    pinUnlockExpiry = Date.now() + PIN_TIMEOUT_MS;
+    updateLockIndicator();
     const tab = pinPendingTab;
     closePinModal();
     activateTab(tab);
   } else {
     document.getElementById("pin-error").hidden = false;
   }
+}
+
+function updateLockIndicator() {
+  const el = document.getElementById("lock-indicator");
+  if (!pinUnlockedThisSession || !pinUnlockExpiry) {
+    el.hidden = true;
+    return;
+  }
+  const sisaMs = pinUnlockExpiry - Date.now();
+  if (sisaMs <= 0) { lockAdmin(); return; }
+  const sisaMenit = Math.ceil(sisaMs / 60000);
+  el.hidden = false;
+  el.textContent = `🔒 Admin · Kunci ${sisaMenit}m`;
 }
 
 /* ===================== NAVIGASI TAB ===================== */
@@ -839,10 +885,11 @@ function activateTab(tab) {
 }
 
 function requestTab(tab) {
-  if (TABS_PROTECTED.includes(tab) && !pinUnlockedThisSession) {
+  if (TABS_PROTECTED.includes(tab) && !isPinUnlocked()) {
     openPinModal(tab);
     return;
   }
+  refreshPinExpiry();
   activateTab(tab);
 }
 
@@ -894,6 +941,17 @@ function init() {
   document.getElementById("pin-submit").addEventListener("click", submitPin);
   document.getElementById("pin-input").addEventListener("keydown", (e) => {
     if (e.key === "Enter") submitPin();
+  });
+
+  // Timer auto-lock: cek setiap menit, update sisa waktu di indikator
+  setInterval(() => {
+    if (pinUnlockedThisSession) updateLockIndicator();
+  }, 30000);
+
+  // Tombol kunci manual di header
+  document.getElementById("lock-indicator").addEventListener("click", () => {
+    if (!confirm("Kunci akses admin sekarang?")) return;
+    lockAdmin();
   });
 
   if ("serviceWorker" in navigator) {

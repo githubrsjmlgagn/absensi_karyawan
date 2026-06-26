@@ -49,7 +49,11 @@ button, input, select{ font-family: inherit; }
   background: var(--surface-2);
   padding: 4px 10px;
   border-radius: 999px;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  user-select: none;
 }
+.lock-indicator:active{ opacity: 0.7; }
 
 main{
   padding: 8px 16px 96px;
@@ -210,6 +214,7 @@ main{
 .koreksi-row{
   display:grid;
   grid-template-columns: 1fr auto auto;
+  grid-template-rows: auto auto;
   align-items:center;
   gap: 8px;
   padding-bottom: 10px;
@@ -228,6 +233,20 @@ main{
   font-family: var(--mono);
   width: 100%;
 }
+.koreksi-keterangan{
+  grid-column: 1 / -1;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: var(--sans);
+  width: 100%;
+  outline: none;
+}
+.koreksi-keterangan:focus{ border-color: var(--lembur); }
+.koreksi-keterangan::placeholder{ color: var(--text-muted); }
 .koreksi-row .saved-flash{ border-color: var(--masuk) !important; }
 
 .employee-list{ display:grid; gap: 8px; }
