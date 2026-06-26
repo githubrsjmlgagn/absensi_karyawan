@@ -196,8 +196,8 @@ function renderAbsenStatus() {
         ? `<span class="btn-info-status telat-label">Telat ${minutesToJamMenit(calc.telat)}</span>`
         : `<span class="btn-info-status tepat-label">Tepat Waktu</span>`);
 
-    // Render tombol pulang terpisah dengan countdown
-    renderTombolPulang(id);
+    // Render tombol pulang terpisah, aktif otomatis 5 menit sebelum jam pulang shift
+    renderTombolPulang(id, shiftId);
     return;
   }
 
@@ -216,9 +216,26 @@ function renderAbsenStatus() {
   if (existingPulang) existingPulang.remove();
 }
 
-const PULANG_COUNTDOWN = 10;
+const PULANG_AKTIF_SEBELUM_MENIT = 5; // tombol "Absen Pulang" aktif mulai N menit sebelum jam pulang shift
 
-function renderTombolPulang(karyawanId) {
+function formatSisaWaktu(ms) {
+  const totalSec = Math.max(0, Math.ceil(ms / 1000));
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `${h}j ${pad(m)}m ${pad(s)}d`;
+  return `${pad(m)}:${pad(s)}`;
+}
+
+function hitungTargetAktifPulang(shiftId) {
+  const shift = shiftById(shiftId);
+  const [hh, mm] = shift.selesai.split(":").map(Number);
+  const target = new Date();
+  target.setHours(hh, mm - PULANG_AKTIF_SEBELUM_MENIT, 0, 0);
+  return target;
+}
+
+function renderTombolPulang(karyawanId, shiftId) {
   const old = document.getElementById("btn-pulang-wrap");
   if (old) old.remove();
 
@@ -226,40 +243,57 @@ function renderTombolPulang(karyawanId) {
   const wrap = document.createElement("div");
   wrap.id = "btn-pulang-wrap";
   wrap.className = "card pulang-card";
+
+  const target = hitungTargetAktifPulang(shiftId);
+  const now = new Date();
+  const sudahAktif = now >= target;
+  const jamTarget = `${pad(target.getHours())}:${pad(target.getMinutes())}`;
+
   wrap.innerHTML = `
     <div class="pulang-label">Absen Pulang</div>
     <div class="pulang-progress-wrap">
       <div class="pulang-progress-bar" id="pulang-progress-bar"></div>
     </div>
-    <button id="btn-pulang-action" class="btn-action mode-pulang" disabled>
-      Menunggu <span id="pulang-countdown">${PULANG_COUNTDOWN}</span>s…
+    <button id="btn-pulang-action" class="btn-action mode-pulang" ${sudahAktif ? "" : "disabled"}>
+      ${
+        sudahAktif
+          ? "Absen Pulang"
+          : `Aktif jam ${jamTarget} <span id="pulang-countdown">(${formatSisaWaktu(target - now)})</span>`
+      }
     </button>`;
   card.after(wrap);
 
   const btnPulang = document.getElementById("btn-pulang-action");
-  const countdownEl = document.getElementById("pulang-countdown");
   const progressBar = document.getElementById("pulang-progress-bar");
 
-  const totalMs = PULANG_COUNTDOWN * 1000;
-  const startTime = Date.now();
+  let interval = null;
 
-  const interval = setInterval(() => {
-    const elapsed = Date.now() - startTime;
-    const pct = Math.min(100, (elapsed / totalMs) * 100);
-    progressBar.style.width = pct + "%";
-    const sisa = Math.ceil((totalMs - elapsed) / 1000);
-    if (sisa <= 0) {
-      clearInterval(interval);
-      btnPulang.disabled = false;
-      btnPulang.textContent = "Absen Pulang";
-      progressBar.style.width = "100%";
-    } else {
-      countdownEl.textContent = sisa;
-    }
-  }, 100);
+  if (sudahAktif) {
+    progressBar.style.width = "100%";
+  } else {
+    const countdownEl = document.getElementById("pulang-countdown");
+    const totalMs = target.getTime() - now.getTime();
+    const startTime = Date.now();
+
+    interval = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const pct = Math.min(100, (elapsed / totalMs) * 100);
+      progressBar.style.width = pct + "%";
+
+      const sisaMs = target.getTime() - Date.now();
+      if (sisaMs <= 0) {
+        clearInterval(interval);
+        btnPulang.disabled = false;
+        btnPulang.textContent = "Absen Pulang";
+        progressBar.style.width = "100%";
+      } else {
+        countdownEl.textContent = `(${formatSisaWaktu(sisaMs)})`;
+      }
+    }, 1000);
+  }
 
   btnPulang.addEventListener("click", () => {
-    clearInterval(interval);
+    if (interval) clearInterval(interval);
     const today = todayStr();
     const absensi = getAbsensi();
     if (!absensi[today]) absensi[today] = {};
