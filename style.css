@@ -290,6 +290,17 @@ table.rekap th{
 .modal-box .row-inline{ margin-top: 6px; }
 .modal-box .btn-primary, .modal-box .btn-ghost{ flex:1; }
 
+.camera-box{ max-width: 360px; }
+.camera-video{
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border-radius: 10px;
+  background: #000;
+  margin-bottom: 10px;
+  transform: scaleX(-1); /* preview mirror, lazimnya kamera selfie */
+}
+
 .bottom-nav{
   position: fixed;
   bottom: 0; left: 0; right: 0;

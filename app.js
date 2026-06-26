@@ -298,12 +298,122 @@ function renderTombolPulang(karyawanId, shiftId) {
     const absensi = getAbsensi();
     if (!absensi[today]) absensi[today] = {};
     if (!absensi[today][karyawanId]) absensi[today][karyawanId] = {};
-    absensi[today][karyawanId].pulang = nowHHMM();
+    const jam = nowHHMM();
+    absensi[today][karyawanId].pulang = jam;
     saveAbsensi(absensi);
     renderAbsenStatus();
     renderLogHariIni();
+
+    // Absen sudah tersimpan di atas. Sekarang buka modal kamera (opsional bagi karyawan).
+    const karyawan = getKaryawan().find((k) => k.id === karyawanId);
+    const shift = shiftById(shiftId);
+    bukaKameraModal(
+      karyawan ? karyawan.nama : "Karyawan",
+      "Absen Pulang",
+      jam,
+      shift ? shift.nama : "-"
+    );
   });
 }
+
+/* ===================== FOTO ABSEN + SHARE WHATSAPP ===================== */
+// Absen sudah tersimpan SEBELUM modal kamera ini dibuka (lihat handleAbsenClick /
+// renderTombolPulang). Jadi kalau kamera/share gagal, absen tetap aman.
+
+function unduhFotoFallback(blob, fileName) {
+  try {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  } catch (e) {
+    /* abaikan */
+  }
+}
+
+let cameraStreamAktif = null;
+let cameraContextPending = null;
+
+async function bukaKameraModal(namaKaryawan, labelAksi, jamLabel, shiftNama) {
+  cameraContextPending = { namaKaryawan, labelAksi, jamLabel, shiftNama };
+
+  const modal = document.getElementById("camera-modal");
+  const video = document.getElementById("camera-preview");
+  const errorEl = document.getElementById("camera-error");
+  const captureBtn = document.getElementById("camera-capture");
+
+  errorEl.hidden = true;
+  captureBtn.disabled = true;
+  modal.hidden = false;
+
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error("getUserMedia tidak didukung di browser ini");
+    }
+    cameraStreamAktif = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "user" },
+      audio: false,
+    });
+    video.srcObject = cameraStreamAktif;
+    await video.play().catch(() => {});
+    captureBtn.disabled = false;
+  } catch (e) {
+    console.warn("Kamera tidak tersedia:", e);
+    errorEl.hidden = false;
+  }
+}
+
+function tutupKameraModal() {
+  document.getElementById("camera-modal").hidden = true;
+  document.getElementById("camera-preview").srcObject = null;
+  if (cameraStreamAktif) {
+    cameraStreamAktif.getTracks().forEach((t) => t.stop());
+    cameraStreamAktif = null;
+  }
+  cameraContextPending = null;
+}
+
+async function handleAmbilGambar() {
+  const video = document.getElementById("camera-preview");
+  const ctx = cameraContextPending;
+  if (!ctx || !cameraStreamAktif || !video.videoWidth) {
+    tutupKameraModal();
+    return;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  tutupKameraModal(); // matikan kamera & tutup modal duluan, baru proses share
+
+  canvas.toBlob(
+    async (blob) => {
+      if (!blob) return;
+      const fileName = `Absen-${sanitizeFileName(ctx.namaKaryawan)}-${ctx.jamLabel.replace(":", "")}.jpg`;
+      const caption = `${ctx.namaKaryawan} · ${ctx.labelAksi} · ${ctx.jamLabel} · Shift ${ctx.shiftNama}`;
+      const file = new File([blob], fileName, { type: "image/jpeg" });
+
+      try {
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], text: caption });
+          return;
+        }
+      } catch (shareErr) {
+        /* lanjut ke fallback unduh di bawah */
+      }
+      unduhFotoFallback(blob, fileName);
+    },
+    "image/jpeg",
+    0.85
+  );
+}
+
 
 function handleAbsenClick() {
   const sel = document.getElementById("pilih-karyawan");
@@ -317,11 +427,22 @@ function handleAbsenClick() {
   if (!absensi[today]) absensi[today] = {};
   if (!absensi[today][id]) absensi[today][id] = {};
 
-  absensi[today][id][action] = nowHHMM();
+  const jam = nowHHMM();
+  absensi[today][id][action] = jam;
   saveAbsensi(absensi);
 
   renderAbsenStatus();
   renderLogHariIni();
+
+  // Absen sudah tersimpan di atas. Sekarang buka modal kamera (opsional bagi karyawan).
+  const karyawan = getKaryawan().find((k) => k.id === id);
+  const shift = shiftById((getJadwal()[today] || {})[id]);
+  bukaKameraModal(
+    karyawan ? karyawan.nama : "Karyawan",
+    action === "masuk" ? "Absen Masuk" : "Absen Pulang",
+    jam,
+    shift ? shift.nama : "-"
+  );
 }
 
 function renderLogHariIni() {
@@ -765,6 +886,9 @@ function init() {
   document.getElementById("export-filename").addEventListener("keydown", (e) => {
     if (e.key === "Enter") confirmExportExcel();
   });
+
+  document.getElementById("camera-skip").addEventListener("click", tutupKameraModal);
+  document.getElementById("camera-capture").addEventListener("click", handleAmbilGambar);
 
   document.getElementById("pin-cancel").addEventListener("click", closePinModal);
   document.getElementById("pin-submit").addEventListener("click", submitPin);

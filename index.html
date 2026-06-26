@@ -121,6 +121,19 @@
 
   </main>
 
+  <!-- Kamera modal: muncul SETELAH absen tersimpan, untuk ambil foto lalu share WA -->
+  <div id="camera-modal" class="modal-overlay" hidden>
+    <div class="modal-box camera-box">
+      <div class="card-title">Foto Absen</div>
+      <video id="camera-preview" class="camera-video" autoplay muted playsinline></video>
+      <div id="camera-error" class="pin-error" hidden>Kamera tidak tersedia di HP ini.</div>
+      <div class="row-inline">
+        <button id="camera-skip" class="btn-ghost">Lewati</button>
+        <button id="camera-capture" class="btn-primary" disabled>Ambil Gambar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Export Excel modal -->
   <div id="export-modal" class="modal-overlay" hidden>
     <div class="modal-box">
