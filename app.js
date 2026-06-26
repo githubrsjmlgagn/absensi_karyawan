@@ -216,7 +216,7 @@ function renderAbsenStatus() {
   if (existingPulang) existingPulang.remove();
 }
 
-const PULANG_COUNTDOWN = 60;
+const PULANG_COUNTDOWN = 10;
 
 function renderTombolPulang(karyawanId) {
   const old = document.getElementById("btn-pulang-wrap");
