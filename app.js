@@ -568,7 +568,15 @@ function renderRekapTampilan() {
     </table>`;
 }
 
-function handleExportExcel() {
+let exportPendingBulanStr = null;
+
+function sanitizeFileName(name) {
+  // Hapus karakter yang tidak aman untuk nama file, sisanya dibiarkan apa adanya.
+  const cleaned = name.replace(/[\\/:*?"<>|]/g, "").trim();
+  return cleaned || "Absensi";
+}
+
+function openExportModal() {
   const bulanInput = document.getElementById("rekap-bulan");
   const bulanStr = bulanInput.value;
   if (!bulanStr) { alert("Pilih bulan dulu."); return; }
@@ -576,6 +584,25 @@ function handleExportExcel() {
     alert("Fitur export butuh koneksi internet sekali untuk memuat library Excel. Coba lagi saat online.");
     return;
   }
+
+  exportPendingBulanStr = bulanStr;
+  const input = document.getElementById("export-filename");
+  input.value = `Absensi-${bulanStr}`;
+  document.getElementById("export-modal").hidden = false;
+  setTimeout(() => { input.focus(); input.select(); }, 50);
+}
+
+function closeExportModal() {
+  document.getElementById("export-modal").hidden = true;
+  exportPendingBulanStr = null;
+}
+
+function confirmExportExcel() {
+  const bulanStr = exportPendingBulanStr;
+  if (!bulanStr) { closeExportModal(); return; }
+
+  const rawName = document.getElementById("export-filename").value;
+  const fileName = sanitizeFileName(rawName);
 
   const { ringkasan, detail } = hitungRekapBulanan(bulanStr);
 
@@ -607,7 +634,9 @@ function handleExportExcel() {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ringkasanSheet, "Rekap Bulanan");
   XLSX.utils.book_append_sheet(wb, detailSheet, "Detail Harian");
-  XLSX.writeFile(wb, `Absensi-${bulanStr}.xlsx`);
+  XLSX.writeFile(wb, `${fileName}.xlsx`);
+
+  closeExportModal();
 }
 
 /* ===================== PIN ADMIN ===================== */
@@ -695,7 +724,13 @@ function init() {
   document.getElementById("btn-ganti-pin").addEventListener("click", handleGantiPin);
 
   document.getElementById("btn-tampilkan-rekap").addEventListener("click", renderRekapTampilan);
-  document.getElementById("btn-export-excel").addEventListener("click", handleExportExcel);
+  document.getElementById("btn-export-excel").addEventListener("click", openExportModal);
+
+  document.getElementById("export-cancel").addEventListener("click", closeExportModal);
+  document.getElementById("export-confirm").addEventListener("click", confirmExportExcel);
+  document.getElementById("export-filename").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") confirmExportExcel();
+  });
 
   document.getElementById("pin-cancel").addEventListener("click", closePinModal);
   document.getElementById("pin-submit").addEventListener("click", submitPin);

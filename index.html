@@ -121,6 +121,19 @@
 
   </main>
 
+  <!-- Export Excel modal -->
+  <div id="export-modal" class="modal-overlay" hidden>
+    <div class="modal-box">
+      <div class="card-title">Nama File Export</div>
+      <p class="hint">Ubah nama file kalau perlu, lalu tekan Export.</p>
+      <input type="text" id="export-filename" class="input-text" autocomplete="off" />
+      <div class="row-inline">
+        <button id="export-cancel" class="btn-ghost">Batal</button>
+        <button id="export-confirm" class="btn-primary">Export</button>
+      </div>
+    </div>
+  </div>
+
   <!-- PIN modal -->
   <div id="pin-modal" class="modal-overlay" hidden>
     <div class="modal-box">
