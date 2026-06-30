@@ -1,5 +1,8 @@
 /* ============================================================
    CORE-FORMAT.JS — Modul Format Angka & Tanggal Indonesia (Lego Brick #11)
+   v3 — tambahan: bulanPanjang() utk format 'YYYY-MM'->'Juli 2026'
+   (dipakai mis. di judul pesan WA rekap bulanan). Fungsi v1/v2 TIDAK
+   berubah.
    v2 — tambahan: durasi() utk format menit->"Xj Ym", tambahHari()
    untuk geser tanggal. Fungsi lama TIDAK berubah (aman ditimpa
    ke app lain yang sudah pakai versi sebelumnya).
@@ -38,6 +41,9 @@
    6. (BARU v2) Geser tanggal N hari (boleh negatif utk mundur):
         CoreFormat.tambahHari('2026-07-01', -1)   // -> '2026-06-30'
         CoreFormat.tambahHari('2026-07-01', 7)    // -> '2026-07-08'
+
+   7. (BARU v3) Format bulan 'YYYY-MM' jadi teks panjang Indonesia:
+        CoreFormat.bulanPanjang('2026-07')   // -> 'Juli 2026'
    ============================================================ */
 (function(){
 
@@ -98,9 +104,15 @@
     return dt.getFullYear()+'-'+pad2(dt.getMonth()+1)+'-'+pad2(dt.getDate());
   }
 
+  // (v3) bulan: string 'YYYY-MM' -> 'Juli 2026'
+  function bulanPanjang(bulanStr){
+    const [y,m] = bulanStr.split('-');
+    return `${NAMA_BULAN[+m-1]} ${y}`;
+  }
+
   window.CoreFormat = {
     rupiah, bersihkanAngka, formatRibuan,
     todayStr, tglPanjang, namaHari, tglHeader,
-    durasi, tambahHari
+    durasi, tambahHari, bulanPanjang
   };
 })();

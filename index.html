@@ -14,7 +14,7 @@
 
   <!-- ===================== HALAMAN UTAMA: ABSEN SAJA ===================== -->
   <header class="topbar">
-    <span class="brand">ABSENSI <span class="brand-accent">TOKO</span></span>
+    <span class="brand">ABSENSI <span id="brand-nama-toko" class="brand-accent">TOKO</span></span>
     <button id="btn-buka-pengaturan" class="btn-gear" aria-label="Pengaturan" title="Pengaturan">⚙</button>
   </header>
 
@@ -52,16 +52,60 @@
     </header>
 
     <nav class="settings-subnav">
-      <button class="subnav-btn active" data-subtab="jadwal">Jadwal</button>
+      <button class="subnav-btn active" data-subtab="profil">Profil</button>
       <button class="subnav-btn" data-subtab="karyawan">Karyawan</button>
+      <button class="subnav-btn" data-subtab="jadwal">Jadwal</button>
       <button class="subnav-btn" data-subtab="rekap">Rekap</button>
       <button class="subnav-btn" data-subtab="data">Data</button>
     </nav>
 
     <div class="settings-body">
 
+      <!-- ---- SUBTAB: PROFIL ---- -->
+      <section id="sub-profil" class="tab active">
+        <div class="card">
+          <div class="card-title">Identitas Toko</div>
+          <label class="field-label" for="profil-nama-toko">Nama Outlet/Toko</label>
+          <input type="text" id="profil-nama-toko" class="input-text" placeholder="mis. Cabang Ampel" />
+          <p class="hint">Dipakai untuk nama file Excel &amp; Backup, judul pesan WA, dan judul aplikasi di atas.</p>
+          <button id="btn-simpan-toko" class="btn-primary" style="width:100%;margin-top:4px">Simpan Nama Toko</button>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Nomor WA Admin Pusat</div>
+          <p class="hint">Dipakai tombol "Share WA" di tab Rekap untuk mengirim ringkasan rekap bulanan.</p>
+          <input type="text" id="profil-wa-admin" class="input-text" placeholder="62812xxxxxxxx" inputmode="numeric" />
+          <button id="btn-simpan-wa-admin" class="btn-primary" style="width:100%;margin-top:8px">Simpan Nomor Admin Pusat</button>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Nomor WA Grup Absensi</div>
+          <p class="hint">Dipakai tombol "Ambil Gambar" saat foto bukti absen. Catatan: link WhatsApp cuma bisa buka chat ke 1 nomor (bukan tautan undangan grup) — isi nomor WA yang memang dipakai sebagai pusat grup absensi.</p>
+          <input type="text" id="profil-wa-grup" class="input-text" placeholder="62812xxxxxxxx" inputmode="numeric" />
+          <button id="btn-simpan-wa-grup" class="btn-primary" style="width:100%;margin-top:8px">Simpan Nomor Grup Absensi</button>
+        </div>
+      </section>
+
+      <!-- ---- SUBTAB: KARYAWAN ---- -->
+      <section id="sub-karyawan" class="tab">
+        <div class="card">
+          <div class="card-title">Tambah karyawan</div>
+          <div class="row-inline">
+            <input type="text" id="input-nama-karyawan" class="input-text" placeholder="Nama karyawan" />
+            <button id="btn-tambah-karyawan" class="btn-primary">Tambah</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Daftar karyawan</div>
+          <div id="daftar-karyawan" class="employee-list">
+            <div class="log-empty">Belum ada karyawan.</div>
+          </div>
+        </div>
+      </section>
+
       <!-- ---- SUBTAB: JADWAL ---- -->
-      <section id="sub-jadwal" class="tab active">
+      <section id="sub-jadwal" class="tab">
         <div class="card">
           <div class="row-between">
             <label class="field-label" for="jadwal-tanggal">Tanggal</label>
@@ -86,32 +130,15 @@
         </div>
       </section>
 
-      <!-- ---- SUBTAB: KARYAWAN ---- -->
-      <section id="sub-karyawan" class="tab">
-        <div class="card">
-          <div class="card-title">Tambah karyawan</div>
-          <div class="row-inline">
-            <input type="text" id="input-nama-karyawan" class="input-text" placeholder="Nama karyawan" />
-            <button id="btn-tambah-karyawan" class="btn-primary">Tambah</button>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-title">Daftar karyawan</div>
-          <div id="daftar-karyawan" class="employee-list">
-            <div class="log-empty">Belum ada karyawan.</div>
-          </div>
-        </div>
-      </section>
-
       <!-- ---- SUBTAB: REKAP ---- -->
       <section id="sub-rekap" class="tab">
         <div class="card">
           <label class="field-label" for="rekap-bulan">Pilih bulan</label>
           <input type="month" id="rekap-bulan" class="input-date" />
-          <div class="row-inline" style="margin-top:12px">
-            <button id="btn-tampilkan-rekap" class="btn-primary">Tampilkan</button>
+          <button id="btn-tampilkan-rekap" class="btn-primary" style="width:100%;margin-top:12px">Tampilkan</button>
+          <div class="row-inline" style="margin-top:8px">
             <button id="btn-export-excel" class="btn-accent">Export Excel</button>
+            <button id="btn-share-wa-rekap" class="btn-ghost">Share WA</button>
           </div>
         </div>
 
@@ -154,6 +181,8 @@
   <script src="core-toast.js" defer></script>
   <script src="core-confirm.js" defer></script>
   <script src="core-pin.js" defer></script>
+  <script src="core-settings.js" defer></script>
+  <script src="core-wa.js" defer></script>
   <script src="core-format.js" defer></script>
   <script src="core-db.js" defer></script>
   <script src="core-backup.js" defer></script>

@@ -1,5 +1,8 @@
 /* ============================================================
    CORE-CAMERA.JS — Modul Ambil Foto & Bagikan (Lego Brick #14)
+   v2 — tambahan: opts.tujuanWa (lihat poin di bawah) untuk app yang
+   butuh foto langsung terarah ke satu nomor/grup WA tertentu, bukan
+   cuma share sheet umum. Perilaku lama (tanpa tujuanWa) TIDAK berubah.
    ------------------------------------------------------------
    Dipakai oleh: app yang butuh foto bukti dari kamera HP (mis.
    foto bukti absen masuk/pulang, foto bukti serah-terima barang,
@@ -24,6 +27,21 @@
        caption: `${nama} · Absen Masuk · ${jam} · Shift ${shiftNama}`
      });
      // hasil.status -> 'dibagikan' | 'diunduh' | 'dilewati' | 'tanpaKamera'
+
+   (BARU v2) Kalau Anda mau foto SELALU terarah ke 1 nomor/grup WA
+   tertentu (bukan dipilih bebas lewat share sheet), isi opts.tujuanWa
+   dengan nomor WA tujuan (format 62xxx, tanpa '+'). Modul akan SELALU
+   mengunduh foto dulu (supaya ada di galeri HP), lalu langsung membuka
+   WhatsApp ke nomor itu dengan teks caption siap kirim — user tinggal
+   lampirkan foto dari galeri secara manual (keterbatasan teknis wa.me:
+   link WhatsApp cuma bisa isi teks otomatis, tidak bisa lampir file):
+
+     await CoreCamera.tangkap({
+       judul: 'Foto Absen Masuk',
+       namaFile: `Absen-${nama}-${jam.replace(':','')}.jpg`,
+       caption: `${nama} · Absen Masuk · ${jam} · Shift ${shiftNama}`,
+       tujuanWa: '6281234567890'   // kosongkan/jangan diisi utk share sheet biasa
+     });
 
    Kalau HP tidak punya kamera / izin ditolak, modal otomatis
    menampilkan pesan error dan tombol "Lewati" tetap bisa dipakai
@@ -120,6 +138,19 @@
 
     canvas.toBlob(async (blob) => {
       if(!blob){ finish('tanpaKamera'); return; }
+
+      // (v2) mode terarah: kalau ada tujuanWa, SELALU unduh dulu (supaya
+      // foto ada di galeri utk dilampirkan manual), lalu langsung buka
+      // WhatsApp ke nomor itu dgn teks caption siap kirim. Tidak pakai
+      // share sheet umum supaya tujuannya pasti & konsisten tiap absen.
+      if(ctx.tujuanWa){
+        unduhFallback(blob, ctx.namaFile);
+        const pesan = encodeURIComponent(ctx.caption || '');
+        window.open(`https://wa.me/${ctx.tujuanWa}?text=${pesan}`, '_blank');
+        finish('dibagikan');
+        return;
+      }
+
       const file = new File([blob], ctx.namaFile, { type:'image/jpeg' });
       let status = 'diunduh';
       try{
@@ -137,14 +168,15 @@
     }, 'image/jpeg', 0.85);
   }
 
-  // opts: { judul, namaFile, caption }
+  // opts: { judul, namaFile, caption, tujuanWa }
   // return: Promise<{status}> -> status: 'dibagikan'|'diunduh'|'dilewati'|'tanpaKamera'
   function tangkap(opts){
     opts = opts || {};
     injectDOM();
     ctxNow = {
       namaFile: opts.namaFile || `Foto-${Date.now()}.jpg`,
-      caption: opts.caption || ''
+      caption: opts.caption || '',
+      tujuanWa: opts.tujuanWa || ''
     };
     el.judul.textContent = opts.judul || 'Ambil Foto';
     el.err.classList.add('cc-cam-hidden');

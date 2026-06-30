@@ -18,6 +18,11 @@ const SHIFTS = [
 
 const PULANG_AKTIF_SEBELUM_MENIT = 5; // tombol "Absen Pulang" aktif mulai N menit sebelum jam pulang shift
 
+// Key Profil/Pengaturan (lewat CoreSettings) — nama outlet & nomor WA admin
+// pusat pakai key bawaan CoreSettings (outletKey/waKey). Nomor WA grup
+// absensi pakai key kedua lewat fungsi generik CoreSettings.*ByKey().
+const WA_GRUP_KEY = "at_wa_grup_absensi";
+
 /* ===================== UTIL KECIL KHUSUS APP INI ===================== */
 
 function pad(n) { return n.toString().padStart(2, "0"); }
@@ -57,6 +62,7 @@ async function initStorage() {
     reminderHari: 7,
     mergeArrayField: null,
     namaPrefix: "Backup_AbsensiToko",
+    getOutlet: CoreSettings.getOutlet,
   });
 }
 
@@ -66,6 +72,38 @@ async function getHarian(tanggal) {
   return { id: tanggal, tipe: "harian", tanggal, jadwal: {}, absensi: {} };
 }
 async function saveHarian(rec) { await CoreDB.put(rec); }
+
+/* ===================== PROFIL TOKO (lewat CoreSettings) ===================== */
+
+function terapkanNamaTokoKeHeader() {
+  const nama = CoreSettings.getOutlet();
+  document.getElementById("brand-nama-toko").textContent = nama ? nama.toUpperCase() : "TOKO";
+  document.title = nama ? `Absensi ${nama}` : "Absensi Toko";
+}
+
+function renderProfilTab() {
+  document.getElementById("profil-nama-toko").value = CoreSettings.getOutlet();
+  document.getElementById("profil-wa-admin").value = CoreSettings.getWaNumber();
+  document.getElementById("profil-wa-grup").value = CoreSettings.getWaNumberByKey(WA_GRUP_KEY);
+}
+
+function handleSimpanNamaToko() {
+  const hasil = CoreSettings.setOutlet(document.getElementById("profil-nama-toko").value);
+  CoreToast.show(hasil.pesan);
+  if (hasil.ok) terapkanNamaTokoKeHeader();
+}
+
+function handleSimpanWaAdmin() {
+  const hasil = CoreSettings.setWaNumber(document.getElementById("profil-wa-admin").value);
+  CoreToast.show(hasil.pesan);
+  if (hasil.ok) document.getElementById("profil-wa-admin").value = hasil.value;
+}
+
+function handleSimpanWaGrup() {
+  const hasil = CoreSettings.setWaNumberByKey(WA_GRUP_KEY, document.getElementById("profil-wa-grup").value);
+  CoreToast.show(hasil.pesan);
+  if (hasil.ok) document.getElementById("profil-wa-grup").value = hasil.value;
+}
 
 /* ===================== STATE ===================== */
 
@@ -255,10 +293,13 @@ function renderTombolPulang(karyawanId, shiftId) {
 
     const karyawan = CoreRoster.cariById(karyawanId);
     const shift = CoreShift.shiftById(shiftId);
+    const namaKaryawan = karyawan ? karyawan.nama : "Karyawan";
+    const namaToko = CoreSettings.getOutlet();
     CoreCamera.tangkap({
       judul: "Foto Absen Pulang",
-      namaFile: `Absen-${sanitizeFileName(karyawan ? karyawan.nama : "Karyawan")}-${jam.replace(":", "")}.jpg`,
-      caption: `${karyawan ? karyawan.nama : "Karyawan"} · Absen Pulang · ${jam} · Shift ${shift ? shift.nama : "-"}`,
+      namaFile: `Absen-${sanitizeFileName(namaKaryawan)}-${jam.replace(":", "")}.jpg`,
+      caption: `${namaToko ? namaToko + " · " : ""}${namaKaryawan} · Absen Pulang · ${jam} · Shift ${shift ? shift.nama : "-"}`,
+      tujuanWa: CoreSettings.getWaNumberByKey(WA_GRUP_KEY) || undefined,
     });
   });
 }
@@ -282,10 +323,13 @@ async function handleAbsenClick() {
   // Absen sudah tersimpan di atas. Foto bersifat opsional/pelengkap.
   const karyawan = CoreRoster.cariById(id);
   const shift = CoreShift.shiftById(rec.jadwal[id]);
+  const namaKaryawan = karyawan ? karyawan.nama : "Karyawan";
+  const namaToko = CoreSettings.getOutlet();
   CoreCamera.tangkap({
     judul: "Foto Absen Masuk",
-    namaFile: `Absen-${sanitizeFileName(karyawan ? karyawan.nama : "Karyawan")}-${jam.replace(":", "")}.jpg`,
-    caption: `${karyawan ? karyawan.nama : "Karyawan"} · Absen Masuk · ${jam} · Shift ${shift ? shift.nama : "-"}`,
+    namaFile: `Absen-${sanitizeFileName(namaKaryawan)}-${jam.replace(":", "")}.jpg`,
+    caption: `${namaToko ? namaToko + " · " : ""}${namaKaryawan} · Absen Masuk · ${jam} · Shift ${shift ? shift.nama : "-"}`,
+    tujuanWa: CoreSettings.getWaNumberByKey(WA_GRUP_KEY) || undefined,
   });
 }
 
@@ -323,7 +367,7 @@ function renderLogHariIni() {
 
 function bukaPengaturan() {
   document.getElementById("settings-panel").hidden = false;
-  activateSubTab("jadwal");
+  activateSubTab("profil");
 }
 
 function tutupPengaturan() {
@@ -335,6 +379,7 @@ function activateSubTab(tab) {
   document.getElementById("sub-" + tab).classList.add("active");
   document.querySelectorAll(".subnav-btn").forEach((b) => b.classList.toggle("active", b.dataset.subtab === tab));
 
+  if (tab === "profil") renderProfilTab();
   if (tab === "jadwal") renderJadwalTab();
   if (tab === "karyawan") renderKaryawanTab();
   if (tab === "rekap") renderRekapTampilan();
@@ -563,9 +608,11 @@ async function handleExportExcel() {
     return;
   }
 
+  const namaToko = CoreSettings.getOutlet();
+
   const sheet1 = CoreExport.sheetRekapAbsensiRingkasan({
     ringkasan,
-    judulAtas: [["Bulan", bulanStr], ["Toko", "Absensi Toko"]],
+    judulAtas: [["Bulan", bulanStr], ["Toko", namaToko || "Absensi Toko"]],
   });
   const sheet2 = CoreExport.sheetRekapAbsensiDetail({
     detail: detail.slice().sort((a, b) => a.tanggal.localeCompare(b.tanggal) || a.nama.localeCompare(b.nama)),
@@ -577,10 +624,35 @@ async function handleExportExcel() {
       { nama: "Rekap Bulanan", ws: sheet1 },
       { nama: "Detail Harian", ws: sheet2 },
     ],
-    namaFileDefault: sanitizeFileName(`Absensi-${bulanStr}`),
+    namaFileDefault: sanitizeFileName(`Absensi-${bulanStr}${namaToko ? "_" + namaToko : ""}`),
     confirm: CoreConfirm.show,
     onSelesai: (nama) => CoreToast.show(`✓ Excel diunduh: ${nama}`),
   });
+}
+
+/* ===================== SUBTAB: REKAP — Share WA ke admin pusat ===================== */
+
+function buatTeksRekapWA(bulanStr, ringkasan, namaToko) {
+  const judul = namaToko ? `*Rekap Absensi — ${namaToko}*` : "*Rekap Absensi*";
+  const baris = ringkasan
+    .map((r) => `• ${r.nama}: ${r.hadir} hari hadir, normal ${CoreFormat.durasi(r.normal)}, lembur ${CoreFormat.durasi(r.lembur)}, telat ${CoreFormat.durasi(r.telat)}`)
+    .join("\n");
+  return `${judul}\nBulan: ${CoreFormat.bulanPanjang(bulanStr)}\n\n${baris}`;
+}
+
+async function handleShareWaRekap() {
+  const bulanInput = document.getElementById("rekap-bulan");
+  const bulanStr = bulanInput.value;
+  if (!bulanStr) { CoreToast.show("Pilih bulan dulu."); return; }
+
+  const nomorAdmin = CoreSettings.getWaNumber();
+  if (!nomorAdmin) { CoreToast.show("Atur dulu Nomor WA Admin Pusat di tab Profil."); return; }
+
+  const { ringkasan } = await hitungRekapBulanan(bulanStr);
+  if (ringkasan.length === 0) { CoreToast.show("Belum ada data untuk dibagikan."); return; }
+
+  const teks = buatTeksRekapWA(bulanStr, ringkasan, CoreSettings.getOutlet());
+  CoreWA.send(nomorAdmin, teks);
 }
 
 /* ===================== SUBTAB: DATA (PIN, backup, restore, reset) ===================== */
@@ -629,6 +701,9 @@ async function handleResetSemua() {
 /* ===================== INIT ===================== */
 
 async function init() {
+  CoreSettings.init({ outletKey: "at_outlet", waKey: "at_wa_admin" });
+  terapkanNamaTokoKeHeader();
+
   await initStorage();
 
   CoreShift.init({ shifts: SHIFTS });
@@ -661,9 +736,10 @@ async function init() {
     b.addEventListener("click", () => activateSubTab(b.dataset.subtab));
   });
 
-  // ---- Subtab Jadwal ----
-  document.getElementById("jadwal-tanggal").addEventListener("change", renderJadwalTab);
-  document.getElementById("btn-copy-kemarin").addEventListener("click", handleCopyKemarin);
+  // ---- Subtab Profil ----
+  document.getElementById("btn-simpan-toko").addEventListener("click", handleSimpanNamaToko);
+  document.getElementById("btn-simpan-wa-admin").addEventListener("click", handleSimpanWaAdmin);
+  document.getElementById("btn-simpan-wa-grup").addEventListener("click", handleSimpanWaGrup);
 
   // ---- Subtab Karyawan ----
   document.getElementById("btn-tambah-karyawan").addEventListener("click", handleTambahKaryawan);
@@ -671,9 +747,14 @@ async function init() {
     if (e.key === "Enter") handleTambahKaryawan();
   });
 
+  // ---- Subtab Jadwal ----
+  document.getElementById("jadwal-tanggal").addEventListener("change", renderJadwalTab);
+  document.getElementById("btn-copy-kemarin").addEventListener("click", handleCopyKemarin);
+
   // ---- Subtab Rekap ----
   document.getElementById("btn-tampilkan-rekap").addEventListener("click", renderRekapTampilan);
   document.getElementById("btn-export-excel").addEventListener("click", handleExportExcel);
+  document.getElementById("btn-share-wa-rekap").addEventListener("click", handleShareWaRekap);
 
   // ---- Subtab Data ----
   document.getElementById("btn-ganti-pin").addEventListener("click", () => CorePin.change());
