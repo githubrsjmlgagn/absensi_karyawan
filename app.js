@@ -12,8 +12,8 @@
 
 const SHIFTS = [
   { id: "pagi",  nama: "Pagi",  mulai: "07:00", selesai: "16:00" },
-  { id: "siang", nama: "Middle", mulai: "10:00", selesai: "19:00" },
-  { id: "sore",  nama: "Siang",  mulai: "12:30", selesai: "21:30" },
+  { id: "siang", nama: "Siang", mulai: "10:00", selesai: "19:00" },
+  { id: "sore",  nama: "Sore",  mulai: "12:30", selesai: "21:30" },
 ];
 
 const PULANG_AKTIF_SEBELUM_MENIT = 5; // tombol "Absen Pulang" aktif mulai N menit sebelum jam pulang shift
