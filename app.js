@@ -18,10 +18,8 @@ const SHIFTS = [
 
 const PULANG_AKTIF_SEBELUM_MENIT = 5; // tombol "Absen Pulang" aktif mulai N menit sebelum jam pulang shift
 
-// Key Profil/Pengaturan (lewat CoreSettings) — nama outlet & nomor WA admin
-// pusat pakai key bawaan CoreSettings (outletKey/waKey). Nomor WA grup
-// absensi pakai key kedua lewat fungsi generik CoreSettings.*ByKey().
-const WA_GRUP_KEY = "at_wa_grup_absensi";
+// Key Profil/Pengaturan (lewat CoreSettings) — nama outlet & nomor WA admin pusat
+// pakai key bawaan CoreSettings (outletKey/waKey).
 
 /* ===================== UTIL KECIL KHUSUS APP INI ===================== */
 
@@ -84,7 +82,6 @@ function terapkanNamaTokoKeHeader() {
 function renderProfilTab() {
   document.getElementById("profil-nama-toko").value = CoreSettings.getOutlet();
   document.getElementById("profil-wa-admin").value = CoreSettings.getWaNumber();
-  document.getElementById("profil-wa-grup").value = CoreSettings.getWaNumberByKey(WA_GRUP_KEY);
 }
 
 function handleSimpanNamaToko() {
@@ -97,12 +94,6 @@ function handleSimpanWaAdmin() {
   const hasil = CoreSettings.setWaNumber(document.getElementById("profil-wa-admin").value);
   CoreToast.show(hasil.pesan);
   if (hasil.ok) document.getElementById("profil-wa-admin").value = hasil.value;
-}
-
-function handleSimpanWaGrup() {
-  const hasil = CoreSettings.setWaNumberByKey(WA_GRUP_KEY, document.getElementById("profil-wa-grup").value);
-  CoreToast.show(hasil.pesan);
-  if (hasil.ok) document.getElementById("profil-wa-grup").value = hasil.value;
 }
 
 /* ===================== STATE ===================== */
@@ -299,7 +290,6 @@ function renderTombolPulang(karyawanId, shiftId) {
       judul: "Foto Absen Pulang",
       namaFile: `Absen-${sanitizeFileName(namaKaryawan)}-${jam.replace(":", "")}.jpg`,
       caption: `${namaToko ? namaToko + " · " : ""}${namaKaryawan} · Absen Pulang · ${jam} · Shift ${shift ? shift.nama : "-"}`,
-      tujuanWa: CoreSettings.getWaNumberByKey(WA_GRUP_KEY) || undefined,
     });
   });
 }
@@ -329,7 +319,6 @@ async function handleAbsenClick() {
     judul: "Foto Absen Masuk",
     namaFile: `Absen-${sanitizeFileName(namaKaryawan)}-${jam.replace(":", "")}.jpg`,
     caption: `${namaToko ? namaToko + " · " : ""}${namaKaryawan} · Absen Masuk · ${jam} · Shift ${shift ? shift.nama : "-"}`,
-    tujuanWa: CoreSettings.getWaNumberByKey(WA_GRUP_KEY) || undefined,
   });
 }
 
@@ -739,7 +728,6 @@ async function init() {
   // ---- Subtab Profil ----
   document.getElementById("btn-simpan-toko").addEventListener("click", handleSimpanNamaToko);
   document.getElementById("btn-simpan-wa-admin").addEventListener("click", handleSimpanWaAdmin);
-  document.getElementById("btn-simpan-wa-grup").addEventListener("click", handleSimpanWaGrup);
 
   // ---- Subtab Karyawan ----
   document.getElementById("btn-tambah-karyawan").addEventListener("click", handleTambahKaryawan);
