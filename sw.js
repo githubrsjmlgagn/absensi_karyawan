@@ -1,10 +1,20 @@
-const CACHE_NAME = "absensi-toko-v14";
+const CACHE_NAME = "absensi-toko-v15";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./style.css",
   "./app.js",
   "./manifest.json",
+  "./core-toast.js",
+  "./core-confirm.js",
+  "./core-pin.js",
+  "./core-format.js",
+  "./core-db.js",
+  "./core-backup.js",
+  "./core-export.js",
+  "./core-camera.js",
+  "./core-roster.js",
+  "./core-shift.js",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
 ];

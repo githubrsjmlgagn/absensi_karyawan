@@ -1,4 +1,14 @@
-/* ===================== KONSTAN ===================== */
+/* ============================================================
+   APP.JS — Absensi Toko
+   ------------------------------------------------------------
+   File ini cuma berisi logika & tampilan KHUSUS app ini.
+   Semua kebutuhan generik (PIN, dialog, toast, storage, format
+   tanggal, export Excel, backup, kamera, data karyawan, mesin
+   shift) dipasok oleh modul-modul core-*.js — lihat tag <script>
+   di index.html.
+   ============================================================ */
+
+/* ===================== KONFIGURASI APP ===================== */
 
 const SHIFTS = [
   { id: "pagi",  nama: "Pagi",  mulai: "07:00", selesai: "16:00" },
@@ -6,142 +16,65 @@ const SHIFTS = [
   { id: "sore",  nama: "Sore",  mulai: "12:30", selesai: "21:30" },
 ];
 
-const HARI = ["Minggu","Senin","Selasa","Rabu","Kamis","Jumat","Sabtu"];
-const BULAN = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+const PULANG_AKTIF_SEBELUM_MENIT = 5; // tombol "Absen Pulang" aktif mulai N menit sebelum jam pulang shift
 
-const LS_KEY = {
-  karyawan: "at_karyawan",
-  jadwal: "at_jadwal",
-  absensi: "at_absensi",
-  pin: "at_pin",
-};
-
-/* ===================== UTIL WAKTU ===================== */
+/* ===================== UTIL KECIL KHUSUS APP INI ===================== */
 
 function pad(n) { return n.toString().padStart(2, "0"); }
+function nowHHMM(d = new Date()) { return `${pad(d.getHours())}:${pad(d.getMinutes())}`; }
 
-function todayStr(d = new Date()) {
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+function escapeHtml(str) {
+  return str.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-function nowHHMM(d = new Date()) {
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+function sanitizeFileName(name) {
+  const cleaned = (name || "").replace(/[\\/:*?"<>|]/g, "").trim();
+  return cleaned || "Absensi";
 }
 
-function hhmmToMinutes(s) {
-  const [h, m] = s.split(":").map(Number);
-  return h * 60 + m;
+function formatSisaWaktu(ms) {
+  const totalSec = Math.max(0, Math.ceil(ms / 1000));
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `${h}j ${pad(m)}m ${pad(s)}d`;
+  return `${pad(m)}:${pad(s)}`;
 }
 
-function minutesToJamMenit(total) {
-  if (total == null) return "-";
-  const sign = total < 0 ? "-" : "";
-  total = Math.abs(Math.round(total));
-  const h = Math.floor(total / 60);
-  const m = total % 60;
-  return `${sign}${h}j ${pad(m)}m`;
+/* ===================== STORAGE (lewat CoreDB, 1 store dipakai bersama) ===================== */
+// Store 'records' menampung 2 jenis record, dibedakan field "tipe":
+//   - tipe:'karyawan' -> dikelola oleh CoreRoster (id:'k_xxx', nama)
+//   - tipe:'harian'   -> record per tanggal {id:tanggal, tanggal, jadwal, absensi}
+
+async function initStorage() {
+  await CoreDB.buka({ dbName: "AbsensiTokoDB", versi: 1, store: "records", keyPath: "id" });
+  CoreRoster.init({ db: CoreDB, tipe: "karyawan" });
+  await CoreRoster.muat();
+  CoreBackup.init({
+    db: CoreDB,
+    keyPath: "id",
+    reminderKey: "at_last_backup",
+    reminderHari: 7,
+    mergeArrayField: null,
+    namaPrefix: "Backup_AbsensiToko",
+  });
 }
 
-function shiftById(id) { return SHIFTS.find((s) => s.id === id); }
-
-function tanggalIndo(dateStr) {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const dt = new Date(y, m - 1, d);
-  return `${HARI[dt.getDay()]}, ${d} ${BULAN[m - 1]} ${y}`;
+async function getHarian(tanggal) {
+  const rec = await CoreDB.get(tanggal);
+  if (rec && rec.tipe === "harian") return rec;
+  return { id: tanggal, tipe: "harian", tanggal, jadwal: {}, absensi: {} };
 }
-
-function addDays(dateStr, n) {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const dt = new Date(y, m - 1, d + n);
-  return todayStr(dt);
-}
-
-/* ===================== STORAGE ===================== */
-
-function loadJSON(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch (e) {
-    return fallback;
-  }
-}
-function saveJSON(key, value) {
-  localStorage.setItem(key, JSON.stringify(value));
-}
-
-function getKaryawan() { return loadJSON(LS_KEY.karyawan, []); }
-function saveKaryawan(arr) { saveJSON(LS_KEY.karyawan, arr); }
-
-function getJadwal() { return loadJSON(LS_KEY.jadwal, {}); }
-function saveJadwal(obj) { saveJSON(LS_KEY.jadwal, obj); }
-
-function getAbsensi() { return loadJSON(LS_KEY.absensi, {}); }
-function saveAbsensi(obj) { saveJSON(LS_KEY.absensi, obj); }
-
-function getPin() { return localStorage.getItem(LS_KEY.pin) || "1234"; }
-function setPin(p) { localStorage.setItem(LS_KEY.pin, p); }
-
-/* ===================== KALKULASI ===================== */
-
-function hitungEntri(shiftId, masuk, pulang) {
-  const shift = shiftById(shiftId);
-  if (!shift) return null;
-
-  const shiftMulai = hhmmToMinutes(shift.mulai);
-  const shiftSelesai = hhmmToMinutes(shift.selesai);
-  const shiftNormal = shiftSelesai - shiftMulai;
-
-  const masukMin = masuk ? hhmmToMinutes(masuk) : null;
-  const pulangMin = pulang ? hhmmToMinutes(pulang) : null;
-
-  const telat = masukMin != null ? Math.max(0, masukMin - shiftMulai) : 0;
-
-  // Lembur = murni waktu kerja SETELAH jam tutup shift resmi, terlepas dari telat atau tidak.
-  // Jam normal = sisanya, dibatasi maksimal sebesar durasi shift (datang lebih awal tidak menambah jam normal).
-  let total = null, normal = null, lembur = null;
-  if (masukMin != null && pulangMin != null) {
-    total = Math.max(0, pulangMin - masukMin);
-    lembur = Math.max(0, pulangMin - shiftSelesai);
-    const rawNormal = total - lembur;
-    normal = Math.max(0, Math.min(rawNormal, shiftNormal));
-  }
-
-  return { shiftNormal, telat, total, normal, lembur };
-}
+async function saveHarian(rec) { await CoreDB.put(rec); }
 
 /* ===================== STATE ===================== */
 
-let currentTab = "absen";
-let pinUnlockedThisSession = false;
-let pinPendingTab = null;
-let pinUnlockExpiry = null;
-const PIN_TIMEOUT_MS = 30 * 60 * 1000; // 30 menit
+const state = {
+  todayRecord: null,   // record harian utk hari ini (tab Absen)
+  jadwalRecord: null,  // record harian utk tanggal yg dipilih (tab Jadwal, di panel Pengaturan)
+};
 
-function isPinUnlocked() {
-  if (!pinUnlockedThisSession) return false;
-  if (pinUnlockExpiry && Date.now() > pinUnlockExpiry) {
-    lockAdmin();
-    return false;
-  }
-  return true;
-}
-
-function refreshPinExpiry() {
-  if (pinUnlockedThisSession) {
-    pinUnlockExpiry = Date.now() + PIN_TIMEOUT_MS;
-  }
-}
-
-function lockAdmin() {
-  pinUnlockedThisSession = false;
-  pinUnlockExpiry = null;
-  document.getElementById("lock-indicator").hidden = true;
-  // Kalau sedang di tab protected, kembali ke tab absen
-  if (["jadwal", "karyawan", "rekap"].includes(currentTab)) {
-    activateTab("absen");
-  }
-}
+let pulangInterval = null;
 
 /* ===================== JAM BERJALAN ===================== */
 
@@ -149,14 +82,25 @@ function tickClock() {
   const now = new Date();
   document.getElementById("clock-time").textContent =
     `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
-  document.getElementById("clock-date").textContent = tanggalIndo(todayStr(now));
+  document.getElementById("clock-date").textContent = CoreFormat.tglHeader(CoreFormat.todayStr());
+
+  // ganti hari otomatis tanpa perlu reload, kalau app dibiarkan terbuka lewat tengah malam
+  const todayNow = CoreFormat.todayStr();
+  if (state.todayRecord && state.todayRecord.tanggal !== todayNow) {
+    getHarian(todayNow).then((rec) => {
+      state.todayRecord = rec;
+      renderAbsenSelect();
+      renderAbsenStatus();
+      renderLogHariIni();
+    });
+  }
 }
 
-/* ===================== TAB: ABSEN ===================== */
+/* ===================== TAB: ABSEN (halaman utama) ===================== */
 
 function renderAbsenSelect() {
   const sel = document.getElementById("pilih-karyawan");
-  const karyawan = getKaryawan();
+  const karyawan = CoreRoster.getList();
   const currentVal = sel.value;
   sel.innerHTML = '<option value="">— Pilih nama —</option>' +
     karyawan.map((k) => `<option value="${k.id}">${escapeHtml(k.nama)}</option>`).join("");
@@ -176,12 +120,12 @@ function renderAbsenStatus() {
     btn.disabled = true;
     btn.className = "btn-action";
     btn.textContent = "Pilih nama dulu";
+    removeTombolPulang();
     return;
   }
 
-  const today = todayStr();
-  const jadwal = getJadwal();
-  const shiftId = jadwal[today] ? jadwal[today][id] : null;
+  const rec = state.todayRecord;
+  const shiftId = rec.jadwal[id];
 
   if (!shiftId) {
     shiftInfo.hidden = false;
@@ -190,15 +134,15 @@ function renderAbsenStatus() {
     btn.disabled = true;
     btn.className = "btn-action";
     btn.textContent = "Belum bisa absen";
+    removeTombolPulang();
     return;
   }
 
-  const shift = shiftById(shiftId);
+  const shift = CoreShift.shiftById(shiftId);
   shiftInfo.hidden = false;
-  shiftInfo.innerHTML = `Shift hari ini: <b>${shift.nama}</b> · ${shift.mulai}–${shift.selesai}`;
+  shiftInfo.innerHTML = `Shift hari ini: <b>${escapeHtml(shift.nama)}</b> · ${shift.mulai}–${shift.selesai}`;
 
-  const absensi = getAbsensi();
-  const entry = (absensi[today] && absensi[today][id]) || {};
+  const entry = rec.absensi[id] || {};
 
   if (!entry.masuk) {
     statusInfo.hidden = true;
@@ -206,72 +150,54 @@ function renderAbsenStatus() {
     btn.className = "btn-action mode-masuk";
     btn.innerHTML = "Absen Masuk";
     btn.dataset.action = "masuk";
-    const existingPulang = document.getElementById("btn-pulang-wrap");
-    if (existingPulang) existingPulang.remove();
+    removeTombolPulang();
     return;
   }
 
   if (entry.masuk && !entry.pulang) {
-    const calc = hitungEntri(shiftId, entry.masuk, null);
-    // Status masuk ditampilkan DI DALAM tombol info
+    const calc = CoreShift.hitungEntri(shiftId, entry.masuk, null);
     statusInfo.hidden = true;
     btn.disabled = true;
     btn.className = "btn-action btn-info-masuk";
     btn.innerHTML =
       `<span class="btn-info-jam">✓ Masuk ${entry.masuk}</span>` +
       (calc.telat > 0
-        ? `<span class="btn-info-status telat-label">Telat ${minutesToJamMenit(calc.telat)}</span>`
+        ? `<span class="btn-info-status telat-label">Telat ${CoreFormat.durasi(calc.telat)}</span>`
         : `<span class="btn-info-status tepat-label">Tepat Waktu</span>`);
 
-    // Render tombol pulang terpisah, aktif otomatis 5 menit sebelum jam pulang shift
     renderTombolPulang(id, shiftId);
     return;
   }
 
   // sudah masuk & pulang
-  const calc = hitungEntri(shiftId, entry.masuk, entry.pulang);
+  const calc = CoreShift.hitungEntri(shiftId, entry.masuk, entry.pulang);
   statusInfo.hidden = false;
   statusInfo.innerHTML =
-    `Masuk: ${entry.masuk}${calc.telat > 0 ? ` <span class="telat">(telat ${minutesToJamMenit(calc.telat)})</span>` : ""}<br>` +
+    `Masuk: ${entry.masuk}${calc.telat > 0 ? ` <span class="telat">(telat ${CoreFormat.durasi(calc.telat)})</span>` : ""}<br>` +
     `Pulang: ${entry.pulang}<br>` +
-    `Jam normal: ${minutesToJamMenit(calc.normal)}` +
-    (calc.lembur > 0 ? ` · <span class="lembur">Lembur ${minutesToJamMenit(calc.lembur)}</span>` : "");
+    `Jam normal: ${CoreFormat.durasi(calc.normal)}` +
+    (calc.lembur > 0 ? ` · <span class="lembur">Lembur ${CoreFormat.durasi(calc.lembur)}</span>` : "");
   btn.disabled = true;
   btn.className = "btn-action";
   btn.innerHTML = "Selesai untuk hari ini ✓";
-  const existingPulang = document.getElementById("btn-pulang-wrap");
-  if (existingPulang) existingPulang.remove();
+  removeTombolPulang();
 }
 
-const PULANG_AKTIF_SEBELUM_MENIT = 5; // tombol "Absen Pulang" aktif mulai N menit sebelum jam pulang shift
-
-function formatSisaWaktu(ms) {
-  const totalSec = Math.max(0, Math.ceil(ms / 1000));
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  if (h > 0) return `${h}j ${pad(m)}m ${pad(s)}d`;
-  return `${pad(m)}:${pad(s)}`;
-}
-
-function hitungTargetAktifPulang(shiftId) {
-  const shift = shiftById(shiftId);
-  const [hh, mm] = shift.selesai.split(":").map(Number);
-  const target = new Date();
-  target.setHours(hh, mm - PULANG_AKTIF_SEBELUM_MENIT, 0, 0);
-  return target;
+function removeTombolPulang() {
+  const old = document.getElementById("btn-pulang-wrap");
+  if (old) old.remove();
+  if (pulangInterval) { clearInterval(pulangInterval); pulangInterval = null; }
 }
 
 function renderTombolPulang(karyawanId, shiftId) {
-  const old = document.getElementById("btn-pulang-wrap");
-  if (old) old.remove();
+  removeTombolPulang();
 
   const card = document.getElementById("btn-absen").closest(".card");
   const wrap = document.createElement("div");
   wrap.id = "btn-pulang-wrap";
   wrap.className = "card pulang-card";
 
-  const target = hitungTargetAktifPulang(shiftId);
+  const target = CoreShift.targetAktifPulang(shiftId, PULANG_AKTIF_SEBELUM_MENIT);
   const now = new Date();
   const sudahAktif = now >= target;
   const jamTarget = `${pad(target.getHours())}:${pad(target.getMinutes())}`;
@@ -293,8 +219,6 @@ function renderTombolPulang(karyawanId, shiftId) {
   const btnPulang = document.getElementById("btn-pulang-action");
   const progressBar = document.getElementById("pulang-progress-bar");
 
-  let interval = null;
-
   if (sudahAktif) {
     progressBar.style.width = "100%";
   } else {
@@ -302,14 +226,14 @@ function renderTombolPulang(karyawanId, shiftId) {
     const totalMs = target.getTime() - now.getTime();
     const startTime = Date.now();
 
-    interval = setInterval(() => {
+    pulangInterval = setInterval(() => {
       const elapsed = Date.now() - startTime;
       const pct = Math.min(100, (elapsed / totalMs) * 100);
       progressBar.style.width = pct + "%";
 
       const sisaMs = target.getTime() - Date.now();
       if (sisaMs <= 0) {
-        clearInterval(interval);
+        clearInterval(pulangInterval); pulangInterval = null;
         btnPulang.disabled = false;
         btnPulang.textContent = "Absen Pulang";
         progressBar.style.width = "100%";
@@ -319,172 +243,63 @@ function renderTombolPulang(karyawanId, shiftId) {
     }, 1000);
   }
 
-  btnPulang.addEventListener("click", () => {
-    if (interval) clearInterval(interval);
-    const today = todayStr();
-    const absensi = getAbsensi();
-    if (!absensi[today]) absensi[today] = {};
-    if (!absensi[today][karyawanId]) absensi[today][karyawanId] = {};
+  btnPulang.addEventListener("click", async () => {
+    if (pulangInterval) { clearInterval(pulangInterval); pulangInterval = null; }
+    const rec = state.todayRecord;
+    if (!rec.absensi[karyawanId]) rec.absensi[karyawanId] = {};
     const jam = nowHHMM();
-    absensi[today][karyawanId].pulang = jam;
-    saveAbsensi(absensi);
+    rec.absensi[karyawanId].pulang = jam;
+    await saveHarian(rec);
     renderAbsenStatus();
     renderLogHariIni();
 
-    // Absen sudah tersimpan di atas. Sekarang buka modal kamera (opsional bagi karyawan).
-    const karyawan = getKaryawan().find((k) => k.id === karyawanId);
-    const shift = shiftById(shiftId);
-    bukaKameraModal(
-      karyawan ? karyawan.nama : "Karyawan",
-      "Absen Pulang",
-      jam,
-      shift ? shift.nama : "-"
-    );
+    const karyawan = CoreRoster.cariById(karyawanId);
+    const shift = CoreShift.shiftById(shiftId);
+    CoreCamera.tangkap({
+      judul: "Foto Absen Pulang",
+      namaFile: `Absen-${sanitizeFileName(karyawan ? karyawan.nama : "Karyawan")}-${jam.replace(":", "")}.jpg`,
+      caption: `${karyawan ? karyawan.nama : "Karyawan"} · Absen Pulang · ${jam} · Shift ${shift ? shift.nama : "-"}`,
+    });
   });
 }
 
-/* ===================== FOTO ABSEN + SHARE WHATSAPP ===================== */
-// Absen sudah tersimpan SEBELUM modal kamera ini dibuka (lihat handleAbsenClick /
-// renderTombolPulang). Jadi kalau kamera/share gagal, absen tetap aman.
-
-function unduhFotoFallback(blob, fileName) {
-  try {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
-  } catch (e) {
-    /* abaikan */
-  }
-}
-
-let cameraStreamAktif = null;
-let cameraContextPending = null;
-
-async function bukaKameraModal(namaKaryawan, labelAksi, jamLabel, shiftNama) {
-  cameraContextPending = { namaKaryawan, labelAksi, jamLabel, shiftNama };
-
-  const modal = document.getElementById("camera-modal");
-  const video = document.getElementById("camera-preview");
-  const errorEl = document.getElementById("camera-error");
-  const captureBtn = document.getElementById("camera-capture");
-
-  errorEl.hidden = true;
-  captureBtn.disabled = true;
-  modal.hidden = false;
-
-  try {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      throw new Error("getUserMedia tidak didukung di browser ini");
-    }
-    cameraStreamAktif = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "user" },
-      audio: false,
-    });
-    video.srcObject = cameraStreamAktif;
-    await video.play().catch(() => {});
-    captureBtn.disabled = false;
-  } catch (e) {
-    console.warn("Kamera tidak tersedia:", e);
-    errorEl.hidden = false;
-  }
-}
-
-function tutupKameraModal() {
-  document.getElementById("camera-modal").hidden = true;
-  document.getElementById("camera-preview").srcObject = null;
-  if (cameraStreamAktif) {
-    cameraStreamAktif.getTracks().forEach((t) => t.stop());
-    cameraStreamAktif = null;
-  }
-  cameraContextPending = null;
-}
-
-async function handleAmbilGambar() {
-  const video = document.getElementById("camera-preview");
-  const ctx = cameraContextPending;
-  if (!ctx || !cameraStreamAktif || !video.videoWidth) {
-    tutupKameraModal();
-    return;
-  }
-
-  const canvas = document.createElement("canvas");
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
-
-  tutupKameraModal(); // matikan kamera & tutup modal duluan, baru proses share
-
-  canvas.toBlob(
-    async (blob) => {
-      if (!blob) return;
-      const fileName = `Absen-${sanitizeFileName(ctx.namaKaryawan)}-${ctx.jamLabel.replace(":", "")}.jpg`;
-      const caption = `${ctx.namaKaryawan} · ${ctx.labelAksi} · ${ctx.jamLabel} · Shift ${ctx.shiftNama}`;
-      const file = new File([blob], fileName, { type: "image/jpeg" });
-
-      try {
-        if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          await navigator.share({ files: [file], text: caption });
-          return;
-        }
-      } catch (shareErr) {
-        /* lanjut ke fallback unduh di bawah */
-      }
-      unduhFotoFallback(blob, fileName);
-    },
-    "image/jpeg",
-    0.85
-  );
-}
-
-
-function handleAbsenClick() {
+async function handleAbsenClick() {
   const sel = document.getElementById("pilih-karyawan");
   const id = sel.value;
   const btn = document.getElementById("btn-absen");
   const action = btn.dataset.action;
   if (!id || !action) return;
 
-  const today = todayStr();
-  const absensi = getAbsensi();
-  if (!absensi[today]) absensi[today] = {};
-  if (!absensi[today][id]) absensi[today][id] = {};
-
+  const rec = state.todayRecord;
+  if (!rec.absensi[id]) rec.absensi[id] = {};
   const jam = nowHHMM();
-  absensi[today][id][action] = jam;
-  saveAbsensi(absensi);
+  rec.absensi[id][action] = jam;
+  await saveHarian(rec);
 
   renderAbsenStatus();
   renderLogHariIni();
 
-  // Absen sudah tersimpan di atas. Sekarang buka modal kamera (opsional bagi karyawan).
-  const karyawan = getKaryawan().find((k) => k.id === id);
-  const shift = shiftById((getJadwal()[today] || {})[id]);
-  bukaKameraModal(
-    karyawan ? karyawan.nama : "Karyawan",
-    action === "masuk" ? "Absen Masuk" : "Absen Pulang",
-    jam,
-    shift ? shift.nama : "-"
-  );
+  // Absen sudah tersimpan di atas. Foto bersifat opsional/pelengkap.
+  const karyawan = CoreRoster.cariById(id);
+  const shift = CoreShift.shiftById(rec.jadwal[id]);
+  CoreCamera.tangkap({
+    judul: "Foto Absen Masuk",
+    namaFile: `Absen-${sanitizeFileName(karyawan ? karyawan.nama : "Karyawan")}-${jam.replace(":", "")}.jpg`,
+    caption: `${karyawan ? karyawan.nama : "Karyawan"} · Absen Masuk · ${jam} · Shift ${shift ? shift.nama : "-"}`,
+  });
 }
 
 function renderLogHariIni() {
   const wrap = document.getElementById("log-hari-ini");
-  const today = todayStr();
-  const absensi = getAbsensi()[today] || {};
-  const jadwal = getJadwal()[today] || {};
-  const karyawan = getKaryawan();
+  const rec = state.todayRecord;
+  const karyawanList = CoreRoster.getList();
 
-  const rows = Object.keys(absensi)
+  const rows = Object.keys(rec.absensi)
     .map((id) => {
-      const k = karyawan.find((x) => x.id === id);
+      const k = karyawanList.find((x) => x.id === id);
       if (!k) return null;
-      const e = absensi[id];
-      const shift = shiftById(jadwal[id]);
+      const e = rec.absensi[id];
+      const shift = CoreShift.shiftById(rec.jadwal[id]);
       return { nama: k.nama, masuk: e.masuk, pulang: e.pulang, shiftNama: shift ? shift.nama : "-" };
     })
     .filter(Boolean)
@@ -498,49 +313,70 @@ function renderLogHariIni() {
   wrap.innerHTML = rows
     .map(
       (r) =>
-        `<div class="log-row"><span class="nm">${escapeHtml(r.nama)} · ${r.shiftNama}</span>` +
+        `<div class="log-row"><span class="nm">${escapeHtml(r.nama)} · ${escapeHtml(r.shiftNama)}</span>` +
         `<span class="tm">${r.masuk || "--:--"} → ${r.pulang || "--:--"}</span></div>`
     )
     .join("");
 }
 
-/* ===================== TAB: JADWAL ===================== */
+/* ===================== PANEL PENGATURAN — buka/tutup & sub-navigasi ===================== */
 
-function renderJadwalTab() {
+function bukaPengaturan() {
+  document.getElementById("settings-panel").hidden = false;
+  activateSubTab("jadwal");
+}
+
+function tutupPengaturan() {
+  document.getElementById("settings-panel").hidden = true;
+}
+
+function activateSubTab(tab) {
+  document.querySelectorAll("#settings-panel .tab").forEach((el) => el.classList.remove("active"));
+  document.getElementById("sub-" + tab).classList.add("active");
+  document.querySelectorAll(".subnav-btn").forEach((b) => b.classList.toggle("active", b.dataset.subtab === tab));
+
+  if (tab === "jadwal") renderJadwalTab();
+  if (tab === "karyawan") renderKaryawanTab();
+  if (tab === "rekap") renderRekapTampilan();
+}
+
+/* ===================== SUBTAB: JADWAL ===================== */
+
+async function renderJadwalTab() {
   const tanggalInput = document.getElementById("jadwal-tanggal");
-  if (!tanggalInput.value) tanggalInput.value = todayStr();
+  if (!tanggalInput.value) tanggalInput.value = CoreFormat.todayStr();
   const tanggal = tanggalInput.value;
 
-  const karyawan = getKaryawan();
-  const jadwal = getJadwal();
+  const karyawan = CoreRoster.getList();
   const wrap = document.getElementById("jadwal-list");
 
   if (karyawan.length === 0) {
     wrap.innerHTML = '<div class="log-empty">Belum ada karyawan. Tambahkan dulu di tab Karyawan.</div>';
+    document.getElementById("koreksi-list").innerHTML = '<div class="log-empty">Tidak ada karyawan berjadwal di tanggal ini.</div>';
     return;
   }
 
-  const hariJadwal = jadwal[tanggal] || {};
+  state.jadwalRecord = await getHarian(tanggal);
+  const rec = state.jadwalRecord;
 
   wrap.innerHTML = karyawan
     .map((k) => {
-      const val = hariJadwal[k.id] || "";
+      const val = rec.jadwal[k.id] || "";
       const options =
         `<option value="">Belum diatur</option>` +
-        SHIFTS.map((s) => `<option value="${s.id}" ${val === s.id ? "selected" : ""}>${s.nama} (${s.mulai}-${s.selesai})</option>`).join("");
+        CoreShift.getShifts().map((s) => `<option value="${s.id}" ${val === s.id ? "selected" : ""}>${escapeHtml(s.nama)} (${s.mulai}-${s.selesai})</option>`).join("");
       return `<div class="jadwal-row"><span class="nm">${escapeHtml(k.nama)}</span>
         <select data-karyawan-id="${k.id}" class="jadwal-select">${options}</select></div>`;
     })
     .join("");
 
   wrap.querySelectorAll(".jadwal-select").forEach((selEl) => {
-    selEl.addEventListener("change", () => {
-      const tanggal2 = document.getElementById("jadwal-tanggal").value;
-      const jadwalAll = getJadwal();
-      if (!jadwalAll[tanggal2]) jadwalAll[tanggal2] = {};
-      if (selEl.value) jadwalAll[tanggal2][selEl.dataset.karyawanId] = selEl.value;
-      else delete jadwalAll[tanggal2][selEl.dataset.karyawanId];
-      saveJadwal(jadwalAll);
+    selEl.addEventListener("change", async () => {
+      const rec2 = state.jadwalRecord;
+      if (selEl.value) rec2.jadwal[selEl.dataset.karyawanId] = selEl.value;
+      else delete rec2.jadwal[selEl.dataset.karyawanId];
+      await saveHarian(rec2);
+      syncKeAbsenJikaTanggalSama(rec2);
       renderKoreksiAbsensi();
     });
   });
@@ -548,18 +384,21 @@ function renderJadwalTab() {
   renderKoreksiAbsensi();
 }
 
+function syncKeAbsenJikaTanggalSama(rec) {
+  if (state.todayRecord && rec.tanggal === state.todayRecord.tanggal) {
+    state.todayRecord = rec;
+    renderAbsenStatus();
+    renderLogHariIni();
+  }
+}
+
 function renderKoreksiAbsensi() {
-  const tanggal = document.getElementById("jadwal-tanggal").value;
-  const karyawan = getKaryawan();
-  const jadwalHari = getJadwal()[tanggal] || {};
-  const absensiHari = getAbsensi()[tanggal] || {};
+  const rec = state.jadwalRecord;
+  const karyawan = CoreRoster.getList();
   const wrap = document.getElementById("koreksi-list");
 
-  // tampilkan karyawan yang berjadwal HARI ITU, atau yang sudah punya entri absensi (kalau jadwalnya kebetulan dihapus belakangan)
-  const idList = Array.from(new Set([...Object.keys(jadwalHari), ...Object.keys(absensiHari)]));
-  const rows = idList
-    .map((id) => karyawan.find((k) => k.id === id))
-    .filter(Boolean);
+  const idList = Array.from(new Set([...Object.keys(rec.jadwal), ...Object.keys(rec.absensi)]));
+  const rows = idList.map((id) => karyawan.find((k) => k.id === id)).filter(Boolean);
 
   if (rows.length === 0) {
     wrap.innerHTML = '<div class="log-empty">Tidak ada karyawan berjadwal di tanggal ini.</div>';
@@ -568,10 +407,10 @@ function renderKoreksiAbsensi() {
 
   wrap.innerHTML = rows
     .map((k) => {
-      const shift = shiftById(jadwalHari[k.id]);
-      const entry = absensiHari[k.id] || {};
+      const shift = CoreShift.shiftById(rec.jadwal[k.id]);
+      const entry = rec.absensi[k.id] || {};
       return `<div class="koreksi-row">
-        <span class="nm">${escapeHtml(k.nama)}<small>${shift ? shift.nama + " · " + shift.mulai + "-" + shift.selesai : "tanpa shift"}</small></span>
+        <span class="nm">${escapeHtml(k.nama)}<small>${shift ? escapeHtml(shift.nama) + " · " + shift.mulai + "-" + shift.selesai : "tanpa shift"}</small></span>
         <input type="time" class="koreksi-masuk" data-karyawan-id="${k.id}" value="${entry.masuk || ""}" aria-label="Jam masuk" />
         <input type="time" class="koreksi-pulang" data-karyawan-id="${k.id}" value="${entry.pulang || ""}" aria-label="Jam pulang" />
         <input type="text" class="koreksi-keterangan" data-karyawan-id="${k.id}" value="${escapeHtml(entry.keterangan || "")}" placeholder="Keterangan (opsional)" aria-label="Keterangan" />
@@ -579,17 +418,16 @@ function renderKoreksiAbsensi() {
     })
     .join("");
 
-  function simpanKoreksi(inputEl, field) {
+  async function simpanKoreksi(inputEl, field) {
     const id = inputEl.dataset.karyawanId;
-    const absensiAll = getAbsensi();
-    if (!absensiAll[tanggal]) absensiAll[tanggal] = {};
-    if (!absensiAll[tanggal][id]) absensiAll[tanggal][id] = {};
-    if (inputEl.value) absensiAll[tanggal][id][field] = inputEl.value;
-    else delete absensiAll[tanggal][id][field];
-    saveAbsensi(absensiAll);
+    const rec2 = state.jadwalRecord;
+    if (!rec2.absensi[id]) rec2.absensi[id] = {};
+    if (inputEl.value) rec2.absensi[id][field] = inputEl.value;
+    else delete rec2.absensi[id][field];
+    await saveHarian(rec2);
     inputEl.classList.add("saved-flash");
     setTimeout(() => inputEl.classList.remove("saved-flash"), 600);
-    refreshPinExpiry();
+    syncKeAbsenJikaTanggalSama(rec2);
   }
 
   wrap.querySelectorAll(".koreksi-masuk").forEach((el) => el.addEventListener("change", () => simpanKoreksi(el, "masuk")));
@@ -597,25 +435,40 @@ function renderKoreksiAbsensi() {
   wrap.querySelectorAll(".koreksi-keterangan").forEach((el) => el.addEventListener("change", () => simpanKoreksi(el, "keterangan")));
 }
 
-function handleCopyKemarin() {
+async function handleCopyKemarin() {
   const tanggalInput = document.getElementById("jadwal-tanggal");
-  const tanggal = tanggalInput.value || todayStr();
-  const kemarin = addDays(tanggal, -1);
-  const jadwalAll = getJadwal();
-  if (!jadwalAll[kemarin]) {
-    alert("Tidak ada jadwal di tanggal sebelumnya untuk disalin.");
+  const tanggal = tanggalInput.value || CoreFormat.todayStr();
+  const kemarin = CoreFormat.tambahHari(tanggal, -1);
+
+  const recKemarin = await getHarian(kemarin);
+  if (!recKemarin.jadwal || Object.keys(recKemarin.jadwal).length === 0) {
+    CoreToast.show("Tidak ada jadwal di tanggal sebelumnya untuk disalin.");
     return;
   }
-  jadwalAll[tanggal] = { ...jadwalAll[kemarin] };
-  saveJadwal(jadwalAll);
+
+  const recTujuan = state.jadwalRecord;
+  if (recTujuan.jadwal && Object.keys(recTujuan.jadwal).length > 0) {
+    const lanjut = await CoreConfirm.show({
+      title: "Timpa jadwal tanggal ini?",
+      message: "Tanggal ini sudah punya jadwal. Menyalin jadwal kemarin akan menimpanya.",
+      confirmText: "Ya, Timpa",
+      danger: true,
+    });
+    if (!lanjut) return;
+  }
+
+  recTujuan.jadwal = { ...recKemarin.jadwal };
+  await saveHarian(recTujuan);
+  syncKeAbsenJikaTanggalSama(recTujuan);
   renderJadwalTab();
+  CoreToast.show("✓ Jadwal kemarin disalin");
 }
 
-/* ===================== TAB: KARYAWAN ===================== */
+/* ===================== SUBTAB: KARYAWAN ===================== */
 
 function renderKaryawanTab() {
   const wrap = document.getElementById("daftar-karyawan");
-  const karyawan = getKaryawan();
+  const karyawan = CoreRoster.getList();
   if (karyawan.length === 0) {
     wrap.innerHTML = '<div class="log-empty">Belum ada karyawan.</div>';
     return;
@@ -629,10 +482,15 @@ function renderKaryawanTab() {
     .join("");
 
   wrap.querySelectorAll(".btn-del").forEach((b) => {
-    b.addEventListener("click", () => {
-      if (!confirm("Hapus karyawan ini? Data absensi lama tetap tersimpan.")) return;
-      const arr = getKaryawan().filter((k) => k.id !== b.dataset.id);
-      saveKaryawan(arr);
+    b.addEventListener("click", async () => {
+      const ok = await CoreConfirm.show({
+        title: "Hapus karyawan ini?",
+        message: "Data absensi lama tetap tersimpan, hanya nama dihapus dari daftar pilihan.",
+        confirmText: "Ya, Hapus",
+        danger: true,
+      });
+      if (!ok) return;
+      await CoreRoster.hapus(b.dataset.id);
       renderKaryawanTab();
       renderAbsenSelect();
       renderJadwalTab();
@@ -640,97 +498,33 @@ function renderKaryawanTab() {
   });
 }
 
-function handleTambahKaryawan() {
+async function handleTambahKaryawan() {
   const input = document.getElementById("input-nama-karyawan");
-  const nama = input.value.trim();
-  if (!nama) return;
-  const arr = getKaryawan();
-  arr.push({ id: "k_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), nama });
-  saveKaryawan(arr);
+  const hasil = await CoreRoster.tambah(input.value);
+  if (!hasil.ok) { CoreToast.show(hasil.pesan); return; }
   input.value = "";
   renderKaryawanTab();
   renderAbsenSelect();
   renderJadwalTab();
 }
 
-function handleGantiPin() {
-  const lama = document.getElementById("pin-lama").value;
-  const baru = document.getElementById("pin-baru").value;
-  if (lama !== getPin()) { alert("PIN lama salah."); return; }
-  if (!baru || baru.length < 4) { alert("PIN baru minimal 4 digit."); return; }
-  setPin(baru);
-  document.getElementById("pin-lama").value = "";
-  document.getElementById("pin-baru").value = "";
-  alert("PIN berhasil diganti.");
+/* ===================== SUBTAB: REKAP ===================== */
+
+async function hitungRekapBulanan(bulanStr) {
+  const dates = CoreShift.bulanRange(bulanStr);
+  const karyawan = CoreRoster.getList();
+  const semua = await CoreDB.getSemua();
+  const harianList = semua.filter((r) => r.tipe === "harian" && dates.includes(r.tanggal));
+  return CoreShift.rekapBulanan({ karyawan, harianList });
 }
 
-/* ===================== TAB: REKAP ===================== */
-
-function bulanRange(bulanStr) {
-  // bulanStr format "YYYY-MM"
-  const [y, m] = bulanStr.split("-").map(Number);
-  const lastDay = new Date(y, m, 0).getDate();
-  const dates = [];
-  for (let d = 1; d <= lastDay; d++) {
-    dates.push(`${y}-${pad(m)}-${pad(d)}`);
-  }
-  return dates;
-}
-
-function hitungRekapBulanan(bulanStr) {
-  const dates = bulanRange(bulanStr);
-  const karyawan = getKaryawan();
-  const jadwalAll = getJadwal();
-  const absensiAll = getAbsensi();
-
-  const detail = []; // baris per hari per karyawan yang hadir
-  const ringkasanMap = {}; // id -> {nama, hadir, normal, lembur, telat}
-
-  karyawan.forEach((k) => (ringkasanMap[k.id] = { nama: k.nama, hadir: 0, normal: 0, lembur: 0, telat: 0 }));
-
-  dates.forEach((tgl) => {
-    const jadwalHari = jadwalAll[tgl] || {};
-    const absensiHari = absensiAll[tgl] || {};
-    Object.keys(absensiHari).forEach((id) => {
-      const k = karyawan.find((x) => x.id === id);
-      if (!k) return;
-      const shiftId = jadwalHari[id];
-      const e = absensiHari[id];
-      if (!shiftId || !e.masuk) return;
-      const calc = hitungEntri(shiftId, e.masuk, e.pulang || null);
-      const shift = shiftById(shiftId);
-
-      detail.push({
-        tanggal: tgl,
-        nama: k.nama,
-        shift: shift.nama,
-        masuk: e.masuk,
-        pulang: e.pulang || "-",
-        normal: calc.normal != null ? calc.normal : 0,
-        lembur: calc.lembur != null ? calc.lembur : 0,
-        telat: calc.telat,
-        keterangan: e.keterangan || "",
-      });
-
-      if (!ringkasanMap[id]) ringkasanMap[id] = { nama: k.nama, hadir: 0, normal: 0, lembur: 0, telat: 0 };
-      ringkasanMap[id].hadir += 1;
-      ringkasanMap[id].normal += calc.normal || 0;
-      ringkasanMap[id].lembur += calc.lembur || 0;
-      ringkasanMap[id].telat += calc.telat || 0;
-    });
-  });
-
-  const ringkasan = Object.values(ringkasanMap);
-  return { ringkasan, detail };
-}
-
-function renderRekapTampilan() {
+async function renderRekapTampilan() {
   const bulanInput = document.getElementById("rekap-bulan");
   if (!bulanInput.value) {
     const now = new Date();
     bulanInput.value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;
   }
-  const { ringkasan } = hitungRekapBulanan(bulanInput.value);
+  const { ringkasan } = await hitungRekapBulanan(bulanInput.value);
   const wrap = document.getElementById("rekap-ringkasan");
 
   if (ringkasan.length === 0) {
@@ -747,163 +541,111 @@ function renderRekapTampilan() {
         ${ringkasan
           .map(
             (r) =>
-              `<tr><td>${escapeHtml(r.nama)}</td><td>${r.hadir} hari</td><td>${minutesToJamMenit(r.normal)}</td><td>${minutesToJamMenit(r.lembur)}</td><td>${minutesToJamMenit(r.telat)}</td></tr>`
+              `<tr><td>${escapeHtml(r.nama)}</td><td>${r.hadir} hari</td><td>${CoreFormat.durasi(r.normal)}</td><td>${CoreFormat.durasi(r.lembur)}</td><td>${CoreFormat.durasi(r.telat)}</td></tr>`
           )
           .join("")}
       </tbody>
     </table>`;
 }
 
-let exportPendingBulanStr = null;
-
-function sanitizeFileName(name) {
-  // Hapus karakter yang tidak aman untuk nama file, sisanya dibiarkan apa adanya.
-  const cleaned = name.replace(/[\\/:*?"<>|]/g, "").trim();
-  return cleaned || "Absensi";
-}
-
-function openExportModal() {
+async function handleExportExcel() {
   const bulanInput = document.getElementById("rekap-bulan");
   const bulanStr = bulanInput.value;
-  if (!bulanStr) { alert("Pilih bulan dulu."); return; }
+  if (!bulanStr) { CoreToast.show("Pilih bulan dulu."); return; }
   if (typeof XLSX === "undefined") {
-    alert("Fitur export butuh koneksi internet sekali untuk memuat library Excel. Coba lagi saat online.");
+    CoreToast.show("Fitur export butuh koneksi internet sekali untuk memuat library Excel. Coba lagi saat online.");
     return;
   }
 
-  exportPendingBulanStr = bulanStr;
-  const input = document.getElementById("export-filename");
-  input.value = `Absensi-${bulanStr}`;
-  document.getElementById("export-modal").hidden = false;
-  setTimeout(() => { input.focus(); input.select(); }, 50);
-}
-
-function closeExportModal() {
-  document.getElementById("export-modal").hidden = true;
-  exportPendingBulanStr = null;
-}
-
-function confirmExportExcel() {
-  const bulanStr = exportPendingBulanStr;
-  if (!bulanStr) { closeExportModal(); return; }
-
-  const rawName = document.getElementById("export-filename").value;
-  const fileName = sanitizeFileName(rawName);
-
-  const { ringkasan, detail } = hitungRekapBulanan(bulanStr);
-
-  const ringkasanSheet = XLSX.utils.json_to_sheet(
-    ringkasan.map((r) => ({
-      Nama: r.nama,
-      "Total Hari Hadir": r.hadir,
-      "Total Jam Normal": minutesToJamMenit(r.normal),
-      "Total Jam Lembur": minutesToJamMenit(r.lembur),
-      "Total Telat": minutesToJamMenit(r.telat),
-    }))
-  );
-
-  const detailSheet = XLSX.utils.json_to_sheet(
-    detail
-      .sort((a, b) => a.tanggal.localeCompare(b.tanggal) || a.nama.localeCompare(b.nama))
-      .map((d) => ({
-        Tanggal: d.tanggal,
-        Nama: d.nama,
-        Shift: d.shift,
-        "Jam Masuk": d.masuk,
-        "Jam Pulang": d.pulang,
-        "Jam Normal": minutesToJamMenit(d.normal),
-        "Jam Lembur": minutesToJamMenit(d.lembur),
-        Telat: minutesToJamMenit(d.telat),
-        Keterangan: d.keterangan || "",
-      }))
-  );
-
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ringkasanSheet, "Rekap Bulanan");
-  XLSX.utils.book_append_sheet(wb, detailSheet, "Detail Harian");
-  XLSX.writeFile(wb, `${fileName}.xlsx`);
-
-  closeExportModal();
-}
-
-/* ===================== PIN ADMIN ===================== */
-
-const TABS_PROTECTED = ["jadwal", "karyawan", "rekap"];
-
-function openPinModal(forTab) {
-  pinPendingTab = forTab;
-  document.getElementById("pin-modal").hidden = false;
-  document.getElementById("pin-error").hidden = true;
-  const input = document.getElementById("pin-input");
-  input.value = "";
-  setTimeout(() => input.focus(), 50);
-}
-
-function closePinModal() {
-  document.getElementById("pin-modal").hidden = true;
-  pinPendingTab = null;
-}
-
-function submitPin() {
-  const input = document.getElementById("pin-input").value;
-  if (input === getPin()) {
-    pinUnlockedThisSession = true;
-    pinUnlockExpiry = Date.now() + PIN_TIMEOUT_MS;
-    updateLockIndicator();
-    const tab = pinPendingTab;
-    closePinModal();
-    activateTab(tab);
-  } else {
-    document.getElementById("pin-error").hidden = false;
-  }
-}
-
-function updateLockIndicator() {
-  const el = document.getElementById("lock-indicator");
-  if (!pinUnlockedThisSession || !pinUnlockExpiry) {
-    el.hidden = true;
+  const { ringkasan, detail } = await hitungRekapBulanan(bulanStr);
+  if (ringkasan.length === 0 && detail.length === 0) {
+    CoreToast.show("Belum ada data untuk diexport.");
     return;
   }
-  const sisaMs = pinUnlockExpiry - Date.now();
-  if (sisaMs <= 0) { lockAdmin(); return; }
-  const sisaMenit = Math.ceil(sisaMs / 60000);
-  el.hidden = false;
-  el.textContent = `🔒 Admin · Kunci ${sisaMenit}m`;
+
+  const sheet1 = CoreExport.sheetRekapAbsensiRingkasan({
+    ringkasan,
+    judulAtas: [["Bulan", bulanStr], ["Toko", "Absensi Toko"]],
+  });
+  const sheet2 = CoreExport.sheetRekapAbsensiDetail({
+    detail: detail.slice().sort((a, b) => a.tanggal.localeCompare(b.tanggal) || a.nama.localeCompare(b.nama)),
+    judulAtas: [["Bulan", bulanStr]],
+  });
+
+  await CoreExport.unduh({
+    sheets: [
+      { nama: "Rekap Bulanan", ws: sheet1 },
+      { nama: "Detail Harian", ws: sheet2 },
+    ],
+    namaFileDefault: sanitizeFileName(`Absensi-${bulanStr}`),
+    confirm: CoreConfirm.show,
+    onSelesai: (nama) => CoreToast.show(`✓ Excel diunduh: ${nama}`),
+  });
 }
 
-/* ===================== NAVIGASI TAB ===================== */
+/* ===================== SUBTAB: DATA (PIN, backup, restore, reset) ===================== */
 
-function activateTab(tab) {
-  currentTab = tab;
-  document.querySelectorAll(".tab").forEach((el) => el.classList.remove("active"));
-  document.getElementById(`tab-${tab}`).classList.add("active");
-  document.querySelectorAll(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
-
-  if (tab === "jadwal") renderJadwalTab();
-  if (tab === "karyawan") renderKaryawanTab();
-  if (tab === "rekap") renderRekapTampilan();
+async function muatUlangSemuaTampilan() {
+  await CoreRoster.muat();
+  renderKaryawanTab();
+  renderAbsenSelect();
+  state.todayRecord = await getHarian(CoreFormat.todayStr());
+  renderAbsenStatus();
+  renderLogHariIni();
+  renderJadwalTab();
 }
 
-function requestTab(tab) {
-  if (TABS_PROTECTED.includes(tab) && !isPinUnlocked()) {
-    openPinModal(tab);
-    return;
+async function handleBackup() {
+  await CoreBackup.unduh({
+    confirm: CoreConfirm.show,
+    onKosong: () => CoreToast.show("Tidak ada data untuk dibackup"),
+    onSelesai: (nama) => CoreToast.show(`✓ Backup diunduh: ${nama}`),
+  });
+}
+
+async function handleRestore(file) {
+  try {
+    const { restored, skipped } = await CoreBackup.restore(file);
+    CoreToast.show(`Restore selesai: ${restored} data dipulihkan, ${skipped} sudah ada`);
+    await muatUlangSemuaTampilan();
+  } catch (err) {
+    CoreToast.show("Gagal baca file: " + err.message);
   }
-  refreshPinExpiry();
-  activateTab(tab);
 }
 
-/* ===================== HELPER ===================== */
-
-function escapeHtml(str) {
-  return str.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+async function handleResetSemua() {
+  await CoreBackup.resetSemua({
+    confirmAwal: CoreConfirm.show,
+    confirmAkhir: CoreConfirm.show,
+    kataKonfirmasi: "HAPUS",
+    onKosong: () => CoreToast.show("Tidak ada data"),
+    onSelesai: async () => {
+      CoreToast.show("Semua data dihapus");
+      await muatUlangSemuaTampilan();
+    },
+  });
 }
 
 /* ===================== INIT ===================== */
 
-function init() {
+async function init() {
+  await initStorage();
+
+  CoreShift.init({ shifts: SHIFTS });
+
+  CorePin.init({
+    storageKey: "at_admin_pin",
+    judulBuat: "Buat PIN Admin",
+    subBuat: "Buat PIN 4 digit untuk mengunci panel Pengaturan",
+    judulBuka: "Pengaturan",
+    subBuka: "Masukkan PIN untuk membuka Pengaturan",
+    onUnlocked: () => bukaPengaturan(),
+  });
+
   tickClock();
   setInterval(tickClock, 1000);
+
+  state.todayRecord = await getHarian(CoreFormat.todayStr());
 
   renderAbsenSelect();
   renderAbsenStatus();
@@ -912,51 +654,46 @@ function init() {
   document.getElementById("pilih-karyawan").addEventListener("change", renderAbsenStatus);
   document.getElementById("btn-absen").addEventListener("click", handleAbsenClick);
 
-  document.querySelectorAll(".nav-btn").forEach((b) => {
-    b.addEventListener("click", () => requestTab(b.dataset.tab));
+  // ---- Buka/tutup panel Pengaturan ----
+  document.getElementById("btn-buka-pengaturan").addEventListener("click", () => CorePin.open("pengaturan"));
+  document.getElementById("btn-tutup-pengaturan").addEventListener("click", tutupPengaturan);
+  document.querySelectorAll(".subnav-btn").forEach((b) => {
+    b.addEventListener("click", () => activateSubTab(b.dataset.subtab));
   });
 
+  // ---- Subtab Jadwal ----
   document.getElementById("jadwal-tanggal").addEventListener("change", renderJadwalTab);
   document.getElementById("btn-copy-kemarin").addEventListener("click", handleCopyKemarin);
 
+  // ---- Subtab Karyawan ----
   document.getElementById("btn-tambah-karyawan").addEventListener("click", handleTambahKaryawan);
   document.getElementById("input-nama-karyawan").addEventListener("keydown", (e) => {
     if (e.key === "Enter") handleTambahKaryawan();
   });
-  document.getElementById("btn-ganti-pin").addEventListener("click", handleGantiPin);
 
+  // ---- Subtab Rekap ----
   document.getElementById("btn-tampilkan-rekap").addEventListener("click", renderRekapTampilan);
-  document.getElementById("btn-export-excel").addEventListener("click", openExportModal);
+  document.getElementById("btn-export-excel").addEventListener("click", handleExportExcel);
 
-  document.getElementById("export-cancel").addEventListener("click", closeExportModal);
-  document.getElementById("export-confirm").addEventListener("click", confirmExportExcel);
-  document.getElementById("export-filename").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") confirmExportExcel();
+  // ---- Subtab Data ----
+  document.getElementById("btn-ganti-pin").addEventListener("click", () => CorePin.change());
+  document.getElementById("btn-backup").addEventListener("click", handleBackup);
+  document.getElementById("btn-pilih-restore").addEventListener("click", () => {
+    document.getElementById("input-restore").click();
   });
-
-  document.getElementById("camera-skip").addEventListener("click", tutupKameraModal);
-  document.getElementById("camera-capture").addEventListener("click", handleAmbilGambar);
-
-  document.getElementById("pin-cancel").addEventListener("click", closePinModal);
-  document.getElementById("pin-submit").addEventListener("click", submitPin);
-  document.getElementById("pin-input").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") submitPin();
+  document.getElementById("input-restore").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (file) handleRestore(file);
   });
-
-  // Timer auto-lock: cek setiap menit, update sisa waktu di indikator
-  setInterval(() => {
-    if (pinUnlockedThisSession) updateLockIndicator();
-  }, 30000);
-
-  // Tombol kunci manual di header
-  document.getElementById("lock-indicator").addEventListener("click", () => {
-    if (!confirm("Kunci akses admin sekarang?")) return;
-    lockAdmin();
-  });
+  document.getElementById("btn-reset").addEventListener("click", handleResetSemua);
 
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("sw.js").catch(() => {});
   }
+
+  // Ingatkan backup berkala (lihat dokumentasi core-backup.js poin 6)
+  CoreBackup.cekReminder({ onIngatkan: (pesan) => CoreToast.show(pesan, 4000) });
 }
 
 document.addEventListener("DOMContentLoaded", init);
