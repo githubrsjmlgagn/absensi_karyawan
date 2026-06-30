@@ -1,4 +1,4 @@
-const CACHE_NAME = "absensi-toko-v19";
+const CACHE_NAME = "absensi-toko-v20.0.1";
 const APP_SHELL = [
   "./",
   "./index.html",
