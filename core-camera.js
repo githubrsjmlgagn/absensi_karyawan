@@ -155,7 +155,7 @@
       let status = 'diunduh';
       try{
         if(navigator.canShare && navigator.canShare({ files:[file] })){
-          await navigator.share({ files:[file], text: ctx.caption || '' });
+          await navigator.share({ files:[file], title: ctx.caption || '', text: ctx.caption || '' });
           status = 'dibagikan';
         } else {
           unduhFallback(blob, ctx.namaFile);
