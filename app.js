@@ -12,8 +12,8 @@
 
 const SHIFTS = [
   { id: "pagi",  nama: "Pagi",  mulai: "07:00", selesai: "16:00" },
-  { id: "siang", nama: "Siang", mulai: "10:00", selesai: "19:00" },
-  { id: "sore",  nama: "Sore",  mulai: "12:30", selesai: "21:30" },
+  { id: "middle", nama: "Middle", mulai: "10:00", selesai: "19:00" },
+  { id: "siang",  nama: "Siang",  mulai: "12:30", selesai: "21:30" },
 ];
 
 const PULANG_AKTIF_SEBELUM_MENIT = 5; // tombol "Absen Pulang" aktif mulai N menit sebelum jam pulang shift
@@ -622,11 +622,11 @@ async function handleExportExcel() {
 /* ===================== SUBTAB: REKAP — Share WA ke admin pusat ===================== */
 
 function buatTeksRekapWA(bulanStr, ringkasan, namaToko) {
-  const judul = namaToko ? `*Rekap Absensi — ${namaToko}*` : "*Rekap Absensi*";
+  const judul = namaToko ? `Rekap Absensi — ${namaToko}` : "*Rekap Absensi*";
   const baris = ringkasan
     .map((r) => `• ${r.nama}: ${r.hadir} hari hadir, normal ${CoreFormat.durasi(r.normal)}, lembur ${CoreFormat.durasi(r.lembur)}, telat ${CoreFormat.durasi(r.telat)}`)
     .join("\n");
-  return `${judul}\nBulan: ${CoreFormat.bulanPanjang(bulanStr)}\n\n${baris}`;
+  return `${judul}\nBulan: ${CoreFormat.bulanPanjang(bulanStr)}`;
 }
 
 async function handleShareWaRekap() {
