@@ -626,7 +626,7 @@ function buatTeksRekapWA(bulanStr, ringkasan, namaToko) {
   const baris = ringkasan
     .map((r) => `• ${r.nama}: ${r.hadir} hari hadir, normal ${CoreFormat.durasi(r.normal)}, lembur ${CoreFormat.durasi(r.lembur)}, telat ${CoreFormat.durasi(r.telat)}`)
     .join("\n");
-  return `${judul}\nBulan: ${CoreFormat.bulanPanjang(bulanStr)}\n\n${}`;
+  return `${judul}\nBulan: ${CoreFormat.bulanPanjang(bulanStr)}\n\n${baris}`;
 }
 
 async function handleShareWaRekap() {
